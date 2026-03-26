@@ -1,6 +1,6 @@
 {
   "name": "trustline",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Service identity and authorization for modern JavaScript runtimes",
   "license": "MIT",
   "type": "module",
