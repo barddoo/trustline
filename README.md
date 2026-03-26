@@ -5,6 +5,8 @@
 
 Service identity and authorization for modern JavaScript runtimes.
 
+> Warning: Trustline is not production-ready yet. Do not use it in production environments. Use it only in side projects.
+
 Trustline is a machine-to-machine authentication library for internal services. It is designed around dedicated core and integration entry points:
 
 - `trustline`: provider, guard, memory storage, and shared core exports
@@ -236,7 +238,7 @@ import { sqliteStorage } from "trustline/adapters/sqlite";
 
 const sqlite = sqliteStorage(new Database("./trustline.sqlite"));
 const postgres = postgresStorage(
-  new PostgresPool({ connectionString: process.env.DATABASE_URL }),
+  new PostgresPool({ connectionString: process.env.DATABASE_URL })
 );
 const mysql = mysqlStorage(createMysqlPool(process.env.DATABASE_URL!));
 ```
