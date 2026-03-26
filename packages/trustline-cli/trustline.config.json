@@ -1,0 +1,5 @@
+{
+  "issuer": "https://auth.test",
+  "sqlitePath": "./trustline.test.sqlite",
+  "tablePrefix": "trustline_"
+}

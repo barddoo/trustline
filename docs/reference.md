@@ -29,6 +29,8 @@ import { postgresStorage } from "trustline/adapters/postgres";
 import { sqliteStorage } from "trustline/adapters/sqlite";
 ```
 
+The repository also ships a standalone admin binary named `trustline-cli` for provisioning and operating SQLite-backed Trustline state.
+
 ## `createProvider(options)`
 
 Creates a provider that issues client-credentials JWTs and publishes a JWKS document.
@@ -213,6 +215,57 @@ Bundled implementations:
 - `mysqlStorage(pool, options?)`
 
 The SQL adapters are imported from dedicated subpaths rather than the root package.
+
+## `trustline-cli`
+
+`trustline-cli` is a Bun-compiled standalone binary for admin operations against SQLite-backed Trustline state.
+
+Config precedence:
+
+1. command flags
+2. environment variables
+3. `trustline.config.json`
+
+Supported config keys:
+
+```json
+{
+  "issuer": "https://auth.internal",
+  "sqlitePath": "./trustline.sqlite",
+  "tablePrefix": "trustline_"
+}
+```
+
+Supported environment variables:
+
+- `TRUSTLINE_CLI_ISSUER`
+- `TRUSTLINE_CLI_SQLITE_PATH`
+- `TRUSTLINE_CLI_TABLE_PREFIX`
+- `TRUSTLINE_CLI_CONFIG`
+
+Core commands:
+
+```bash
+trustline-cli client create --name orders-api --scope read:inventory
+trustline-cli client list
+trustline-cli client get --client-id svc_...
+trustline-cli client rename --client-id svc_... --name orders-v2
+trustline-cli client set-scopes --client-id svc_... --scope read:inventory
+trustline-cli client rotate-secret --client-id svc_...
+trustline-cli client disable --client-id svc_...
+trustline-cli client enable --client-id svc_...
+trustline-cli client invalidate-tokens-before --client-id svc_... --at 2026-01-01T00:00:00.000Z
+trustline-cli client clear-tokens-invalid-before --client-id svc_...
+trustline-cli client revoke --client-id svc_...
+trustline-cli key rotate
+trustline-cli token revoke --jti token-123 --expires-at 2026-01-02T00:00:00.000Z
+```
+
+Output behavior:
+
+- `client create` prints shell exports for `TRUSTLINE_CLIENT_ID` and `TRUSTLINE_CLIENT_SECRET`
+- `client rotate-secret` prints a shell export for `TRUSTLINE_CLIENT_SECRET`
+- `--json` switches any command to machine-readable JSON output
 
 SQL-backed adapters accept:
 

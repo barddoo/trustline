@@ -59,6 +59,7 @@ If you are working from this repository before package publication, build the pa
 This is the smallest realistic shape of a service-to-service call:
 
 - an auth provider issues credentials for the caller service
+- an operator provisions the caller credentials with `trustline-cli`
 - the caller service gets a token for the receiver service
 - the receiver service verifies that token locally
 
@@ -85,7 +86,24 @@ const app = new Hono();
 app.route("/", createHonoProvider(provider));
 ```
 
-The provider returns `ordersApiCredentials.clientId` and `ordersApiCredentials.clientSecret` once. Store those values in the caller service's environment or secret manager.
+Provision the caller credentials once from the auth service state:
+
+```bash
+trustline-cli client create \
+  --issuer https://auth.internal \
+  --sqlite-path ./trustline.sqlite \
+  --name orders-api \
+  --scope read:inventory
+```
+
+That prints:
+
+```bash
+export TRUSTLINE_CLIENT_ID='svc_...'
+export TRUSTLINE_CLIENT_SECRET='...'
+```
+
+Store those values in the caller service's environment or secret manager.
 
 ### Caller service: `orders-api`
 

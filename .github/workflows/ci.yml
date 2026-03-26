@@ -25,6 +25,23 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Build CLI binary
+        run: bun run build:cli:host
+
+      - name: Smoke test CLI binary
+        run: |
+          DB_PATH="$(mktemp -u /tmp/trustline-cli-XXXX.sqlite)"
+          ./packages/trustline-cli/dist/cli/trustline-cli client create \
+            --issuer https://auth.internal \
+            --sqlite-path "$DB_PATH" \
+            --name ci-smoke \
+            --scope read:inventory > /tmp/trustline-cli-create.out
+          ./packages/trustline-cli/dist/cli/trustline-cli client list \
+            --issuer https://auth.internal \
+            --sqlite-path "$DB_PATH" > /tmp/trustline-cli-list.out
+          grep "TRUSTLINE_CLIENT_ID" /tmp/trustline-cli-create.out
+          grep "ci-smoke" /tmp/trustline-cli-list.out
+
       - name: Test
         run: bun run test
 

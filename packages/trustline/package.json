@@ -1,0 +1,113 @@
+{
+  "name": "trustline",
+  "version": "0.1.1",
+  "description": "Service identity and authorization for modern JavaScript runtimes",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./adapters/mysql": {
+      "types": "./dist/adapters/mysql/index.d.ts",
+      "import": "./dist/adapters/mysql/index.js",
+      "require": "./dist/adapters/mysql/index.cjs"
+    },
+    "./adapters/postgres": {
+      "types": "./dist/adapters/postgres/index.d.ts",
+      "import": "./dist/adapters/postgres/index.js",
+      "require": "./dist/adapters/postgres/index.cjs"
+    },
+    "./adapters/sqlite": {
+      "types": "./dist/adapters/sqlite/index.d.ts",
+      "import": "./dist/adapters/sqlite/index.js",
+      "require": "./dist/adapters/sqlite/index.cjs"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.cjs"
+    },
+    "./frameworks/express": {
+      "types": "./dist/frameworks/express/index.d.ts",
+      "import": "./dist/frameworks/express/index.js",
+      "require": "./dist/frameworks/express/index.cjs"
+    },
+    "./frameworks/fastify": {
+      "types": "./dist/frameworks/fastify/index.d.ts",
+      "import": "./dist/frameworks/fastify/index.js",
+      "require": "./dist/frameworks/fastify/index.cjs"
+    },
+    "./frameworks/hono": {
+      "types": "./dist/frameworks/hono/index.d.ts",
+      "import": "./dist/frameworks/hono/index.js",
+      "require": "./dist/frameworks/hono/index.cjs"
+    }
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "check": "biome check .",
+    "example:hono:auth": "node ../../examples/hono-services/auth.js",
+    "example:hono:caller": "node ../../examples/hono-services/caller.js",
+    "example:hono:receiver": "node ../../examples/hono-services/receiver.js",
+    "example:hono:all": "npm run example:hono:auth & npm run example:hono:caller & npm run example:hono:receiver",
+    "test": "bunx vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/barddoo/trustline"
+  },
+  "peerDependencies": {
+    "better-sqlite3": "^12.8.0",
+    "express": "^4.21.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0",
+    "kysely": "^0.28.14",
+    "mysql2": "^3.20.0",
+    "pg": "^8.20.0"
+  },
+  "peerDependenciesMeta": {
+    "better-sqlite3": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    },
+    "fastify": {
+      "optional": true
+    },
+    "hono": {
+      "optional": true
+    },
+    "kysely": {
+      "optional": true
+    },
+    "mysql2": {
+      "optional": true
+    },
+    "pg": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.1.0",
+    "uuid": "^13.0.0"
+  }
+}

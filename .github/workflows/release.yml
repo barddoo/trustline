@@ -38,6 +38,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Create release pull request or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: bun run release:version
@@ -45,3 +46,16 @@ jobs:
           createGithubReleases: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build CLI release binaries
+        if: steps.changesets.outputs.published == 'true'
+        run: bun run build:cli:release
+
+      - name: Upload CLI release binaries
+        if: steps.changesets.outputs.published == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+        run: |
+          VERSION="$(node -e "const packages = JSON.parse(process.env.PUBLISHED_PACKAGES); if (!Array.isArray(packages) || packages.length === 0) process.exit(1); console.log(packages[0].version);")"
+          gh release upload "trustline@${VERSION}" packages/trustline-cli/dist/cli/* --clobber
