@@ -9,9 +9,11 @@ export type {
   CreateProviderClientInput,
   Provider,
   ProviderOptions,
+  RotateSigningKeyInput,
 } from "./provider/index";
 export { createProvider } from "./provider/index";
 export type {
+  RevokedToken,
   ServiceClient,
   SigningKey,
   SqlStorageOptions,

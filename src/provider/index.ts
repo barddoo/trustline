@@ -7,11 +7,13 @@ import { generateSecret, hashSecret, verifySecret } from "../core/crypto";
 import {
   createSigningKey,
   exportSigningKeyToJwk,
-  getActiveSigningKeys,
+  getSigningKeyForIssuance,
+  getVerificationSigningKeys,
   type SigningAlgorithm,
 } from "../core/keys";
 import { parseScopes } from "../core/scopes";
 import type {
+  RevokedToken,
   ServiceClient,
   SigningKey,
   StorageAdapter,
@@ -41,16 +43,34 @@ export interface CreatedProviderClient {
   clientSecret: string;
 }
 
+export interface RotateSigningKeyInput {
+  activateAt?: Date;
+  algorithm?: SigningAlgorithm;
+  keyId?: string;
+  overlapSeconds?: number;
+  privateKey?: string;
+}
+
 export interface Provider {
   handle(request: Request): Promise<Response>;
   clients: {
     create(input: CreateProviderClientInput): Promise<CreatedProviderClient>;
     list(): Promise<ServiceClient[]>;
     revoke(clientId: string): Promise<void>;
+    disable(clientId: string): Promise<void>;
+    enable(clientId: string): Promise<void>;
+    invalidateTokensBefore(clientId: string, at?: Date): Promise<void>;
+  };
+  keys: {
+    rotate(input?: RotateSigningKeyInput): Promise<{ keyId: string }>;
+  };
+  tokens: {
+    revoke(jti: string, expiresAt: Date): Promise<void>;
   };
 }
 
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
+const JWKS_CACHE_CONTROL_HEADER = "public, max-age=600";
 
 export function createProvider(options: ProviderOptions): Provider {
   const provider = new TrustlineProvider(options);
@@ -68,6 +88,28 @@ export function createProvider(options: ProviderOptions): Provider {
       },
       revoke(clientId) {
         return provider.revokeClient(clientId);
+      },
+      disable(clientId) {
+        return provider.setClientActive(clientId, false);
+      },
+      enable(clientId) {
+        return provider.setClientActive(clientId, true);
+      },
+      invalidateTokensBefore(clientId, at) {
+        return provider.invalidateTokensBefore(clientId, at);
+      },
+    },
+    keys: {
+      rotate(input) {
+        return provider.rotateSigningKey(input);
+      },
+    },
+    tokens: {
+      revoke(jti, expiresAt) {
+        return provider.revokeToken({
+          jti,
+          expiresAt,
+        });
       },
     },
   };
@@ -105,6 +147,8 @@ class TrustlineProvider {
       scopes: parseScopes(input.scopes?.join(" ")),
       createdAt: new Date(),
       lastSeenAt: null,
+      active: true,
+      tokensInvalidBefore: null,
     };
 
     await this.options.storage.createClient(client);
@@ -123,9 +167,23 @@ class TrustlineProvider {
     return this.options.storage.deleteClient(clientId);
   }
 
+  setClientActive(clientId: string, active: boolean): Promise<void> {
+    return this.options.storage.setClientActive(clientId, active);
+  }
+
+  invalidateTokensBefore(clientId: string, at = new Date()): Promise<void> {
+    return this.options.storage.setTokensInvalidBefore(clientId, at);
+  }
+
+  revokeToken(token: RevokedToken): Promise<void> {
+    return this.options.storage.revokeToken(token);
+  }
+
   private async handleJwks(): Promise<Response> {
     const jwks = await this.getJwks();
-    return jsonResponse(jwks);
+    return jsonResponse(jwks, 200, {
+      "cache-control": JWKS_CACHE_CONTROL_HEADER,
+    });
   }
 
   private async handleToken(request: Request): Promise<Response> {
@@ -184,9 +242,31 @@ class TrustlineProvider {
       );
     }
 
+    if (!client.active) {
+      return jsonResponse(
+        {
+          error: "invalid_client",
+          error_description: "Client is inactive",
+        },
+        401,
+      );
+    }
+
+    const grantedScopes = resolveGrantedScopes(body.get("scope"), client.scopes);
+    if (!grantedScopes) {
+      return jsonResponse(
+        {
+          error: "invalid_scope",
+          error_description: "Requested scope exceeds client permissions",
+        },
+        400,
+      );
+    }
+
     const token = await this.issueAccessToken({
       audience: body.get("audience") ?? undefined,
       client,
+      scopes: grantedScopes,
     });
 
     await this.options.storage.touchClient(client.clientId, new Date());
@@ -195,21 +275,22 @@ class TrustlineProvider {
       access_token: token,
       token_type: "Bearer",
       expires_in: this.options.token?.ttl ?? DEFAULT_TOKEN_TTL_SECONDS,
-      scope: client.scopes.join(" "),
+      scope: grantedScopes.join(" "),
     });
   }
 
   private async issueAccessToken(input: {
     audience?: string;
     client: ServiceClient;
+    scopes: string[];
   }): Promise<string> {
-    const signingKey = await this.ensureActiveSigningKey();
+    const signingKey = await this.ensureSigningKeyForIssuance();
     const privateKey = createPrivateKey(signingKey.privateKey);
     const ttl = this.options.token?.ttl ?? DEFAULT_TOKEN_TTL_SECONDS;
 
     const jwt = new SignJWT({
       name: input.client.name,
-      scope: input.client.scopes.join(" "),
+      scope: input.scopes.join(" "),
       ...(this.options.env ? { env: this.options.env } : {}),
     })
       .setProtectedHeader({
@@ -230,11 +311,9 @@ class TrustlineProvider {
   }
 
   private async getJwks(): Promise<JSONWebKeySet> {
-    const keys = getActiveSigningKeys(
-      await this.options.storage.getSigningKeys(),
-    );
+    const keys = getVerificationSigningKeys(await this.options.storage.getSigningKeys());
     if (keys.length === 0) {
-      await this.ensureActiveSigningKey();
+      await this.ensureSigningKeyForIssuance();
       return this.getJwks();
     }
 
@@ -243,11 +322,8 @@ class TrustlineProvider {
     };
   }
 
-  private async ensureActiveSigningKey(): Promise<SigningKey> {
-    const existing = getActiveSigningKeys(
-      await this.options.storage.getSigningKeys(),
-    );
-    const current = existing[0];
+  private async ensureSigningKeyForIssuance(): Promise<SigningKey> {
+    const current = getSigningKeyForIssuance(await this.options.storage.getSigningKeys());
     if (current) {
       return current;
     }
@@ -256,13 +332,48 @@ class TrustlineProvider {
     await this.options.storage.addSigningKey(key);
     return key;
   }
+
+  async rotateSigningKey(
+    input: RotateSigningKeyInput = {},
+  ): Promise<{ keyId: string }> {
+    const now = new Date();
+    const activateAt = input.activateAt ?? now;
+    const current = await this.ensureSigningKeyForIssuance();
+    const next = await createSigningKey({
+      algorithm: input.algorithm ?? this.options.signing?.algorithm,
+      keyId: input.keyId,
+      privateKey: input.privateKey,
+    });
+
+    next.notBefore = activateAt;
+    await this.options.storage.addSigningKey(next);
+
+    const overlapSeconds =
+      input.overlapSeconds ??
+      (this.options.token?.ttl ?? DEFAULT_TOKEN_TTL_SECONDS) + 60;
+    const currentNotAfter = new Date(
+      activateAt.getTime() + overlapSeconds * 1000,
+    );
+
+    await this.options.storage.setSigningKeyNotAfter(
+      current.keyId,
+      currentNotAfter,
+    );
+
+    return { keyId: next.keyId };
+  }
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
       "content-type": "application/json",
+      ...headers,
     },
   });
 }
@@ -291,4 +402,24 @@ function getBasicCredentials(header: string | null): {
     clientId: decoded.slice(0, separatorIndex),
     clientSecret: decoded.slice(separatorIndex + 1),
   };
+}
+
+function resolveGrantedScopes(
+  requestedScope: string | null,
+  allowedScopes: string[],
+): string[] | null {
+  if (!requestedScope) {
+    return [...allowedScopes];
+  }
+
+  const requestedScopes = parseScopes(requestedScope);
+  const allowedScopeSet = new Set(allowedScopes);
+
+  for (const scope of requestedScopes) {
+    if (!allowedScopeSet.has(scope)) {
+      return null;
+    }
+  }
+
+  return requestedScopes;
 }

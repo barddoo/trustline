@@ -23,6 +23,7 @@ export async function createSigningKey(
 ): Promise<SigningKey> {
   const algorithm = options.algorithm ?? "ES256";
   const keyId = options.keyId ?? `key_${randomUUID()}`;
+  const now = new Date();
 
   if (options.privateKey) {
     const privateKey = createPrivateKey(options.privateKey);
@@ -40,7 +41,8 @@ export async function createSigningKey(
         format: "pem",
       }) as string,
       createdAt: new Date(),
-      retiredAt: null,
+      notBefore: now,
+      notAfter: null,
     };
   }
 
@@ -53,8 +55,9 @@ export async function createSigningKey(
     algorithm,
     privateKey: await exportPKCS8(privateKey),
     publicKey: await exportSPKI(publicKey),
-    createdAt: new Date(),
-    retiredAt: null,
+    createdAt: now,
+    notBefore: now,
+    notAfter: null,
   };
 }
 
@@ -72,6 +75,23 @@ export async function exportSigningKeyToJwk(
   };
 }
 
-export function getActiveSigningKeys(keys: SigningKey[]): SigningKey[] {
-  return keys.filter((key) => key.retiredAt === null);
+export function getVerificationSigningKeys(
+  keys: SigningKey[],
+  now = new Date(),
+): SigningKey[] {
+  return keys.filter((key) => key.notAfter === null || key.notAfter > now);
+}
+
+export function getSigningKeyForIssuance(
+  keys: SigningKey[],
+  now = new Date(),
+): SigningKey | null {
+  const activeKeys = keys
+    .filter(
+      (key) =>
+        key.notBefore <= now && (key.notAfter === null || key.notAfter > now),
+    )
+    .sort((left, right) => right.notBefore.getTime() - left.notBefore.getTime());
+
+  return activeKeys[0] ?? null;
 }

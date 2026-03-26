@@ -13,6 +13,7 @@ describe("verifyToken", () => {
       const identity = await verifyToken(token, {
         issuer: issuer.issuer,
         audience: "inventory-service",
+        storage: issuer.storage,
       });
 
       expect(identity.clientId).toBe("svc_test_client");
@@ -33,6 +34,7 @@ describe("verifyToken", () => {
         issuer: issuer.issuer,
         jwksUrl: issuer.jwksUrl,
         audience: "inventory-service",
+        storage: issuer.storage,
       });
 
       expect(identity.clientId).toBe("svc_test_client");
@@ -51,6 +53,7 @@ describe("verifyToken", () => {
         verifyToken(token, {
           issuer: issuer.issuer,
           audience: "billing-service",
+          storage: issuer.storage,
         }),
       ).rejects.toMatchObject({
         code: "invalid_audience",
@@ -75,6 +78,7 @@ describe("verifyToken", () => {
           issuer: issuer.issuer,
           audience: "inventory-service",
           scopes: ["read:orders", "write:inventory"],
+          storage: issuer.storage,
         }),
       ).rejects.toMatchObject({
         code: "invalid_scope",
@@ -99,6 +103,7 @@ describe("verifyToken", () => {
           issuer: issuer.issuer,
           audience: "inventory-service",
           env: "production",
+          storage: issuer.storage,
         }),
       ).rejects.toMatchObject({
         code: "invalid_env",
@@ -120,11 +125,13 @@ describe("verifyToken", () => {
         issuer: issuer.issuer,
         audience: "inventory-service",
         jwksCache: cache,
+        storage: issuer.storage,
       });
       await verifyToken(token, {
         issuer: issuer.issuer,
         audience: "inventory-service",
         jwksCache: cache,
+        storage: issuer.storage,
       });
 
       expect(issuer.getFetchCount()).toBe(1);
@@ -145,16 +152,19 @@ describe("verifyToken", () => {
           issuer: issuer.issuer,
           audience: "inventory-service",
           jwksCache: cache,
+          storage: issuer.storage,
         }),
         verifyToken(token, {
           issuer: issuer.issuer,
           audience: "inventory-service",
           jwksCache: cache,
+          storage: issuer.storage,
         }),
         verifyToken(token, {
           issuer: issuer.issuer,
           audience: "inventory-service",
           jwksCache: cache,
+          storage: issuer.storage,
         }),
       ]);
 
@@ -171,6 +181,7 @@ describe("verifyToken", () => {
       verifyToken("invalid", {
         issuer: "http://example.test",
         jwksUrl,
+        storage: issuerlessStorage(),
       }),
     ).rejects.toMatchObject({
       code: "jwks_fetch_failed",
@@ -187,3 +198,24 @@ describe("verifyToken", () => {
     );
   });
 });
+
+function issuerlessStorage() {
+  return createTestIssuerStorage();
+}
+
+function createTestIssuerStorage() {
+  return {
+    findClient: async () => null,
+    createClient: async () => {},
+    deleteClient: async () => {},
+    listClients: async () => [],
+    touchClient: async () => {},
+    setClientActive: async () => {},
+    setTokensInvalidBefore: async () => {},
+    getSigningKeys: async () => [],
+    addSigningKey: async () => {},
+    setSigningKeyNotAfter: async () => {},
+    findRevokedToken: async () => null,
+    revokeToken: async () => {},
+  };
+}

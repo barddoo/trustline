@@ -243,35 +243,6 @@ const postgres = postgresStorage(
 const mysql = mysqlStorage(createMysqlPool(process.env.DATABASE_URL!));
 ```
 
-## Documentation
-
-The VitePress docs site lives in `docs/`.
-
-Runnable examples live under `examples/`. For a full Hono-based flow with a dedicated auth provider plus caller and receiver services, see `examples/hono-services/`.
-
-Key pages:
-
-- `docs/index.md`
-- `docs/get-started.md`
-- `docs/concepts.md`
-- `docs/middleware.md`
-- `docs/reference.md`
-- `docs/roadmap.md`
-
-To run the docs locally:
-
-```bash
-cd docs
-bun run docs:dev
-```
-
-To build the docs:
-
-```bash
-cd docs
-bun run docs:build
-```
-
 ## Development
 
 Build the package:

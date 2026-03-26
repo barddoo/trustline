@@ -2,7 +2,7 @@ import express from "express";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createGuard } from "../../src";
+import { createGuard, memoryStorage } from "../../src";
 import { createExpressGuard } from "../../src/frameworks/express";
 import { createTestIssuer, type TestIssuer } from "../helpers";
 
@@ -15,7 +15,10 @@ describe("Express guard", () => {
 
   it("returns 401 when the bearer token is missing", async () => {
     const app = express();
-    const guard = createGuard({ issuer: "http://127.0.0.1:9999" });
+    const guard = createGuard({
+      issuer: "http://127.0.0.1:9999",
+      storage: memoryStorage(),
+    });
 
     app.use(createExpressGuard(guard));
     app.get("/", (_request, response) => {
@@ -40,6 +43,7 @@ describe("Express guard", () => {
     const guard = createGuard({
       issuer: issuer.issuer,
       audience: "inventory-service",
+      storage: issuer.storage,
     });
 
     app.use(createExpressGuard(guard));
@@ -68,6 +72,7 @@ describe("Express guard", () => {
       issuer: issuer.issuer,
       audience: "inventory-service",
       scopes: ["write:inventory"],
+      storage: issuer.storage,
     });
 
     app.use(createExpressGuard(guard));

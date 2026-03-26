@@ -1,13 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose";
 
+import { memoryStorage } from "../src";
 import type { Provider } from "../src/provider";
+import type { StorageAdapter } from "../src/storage/interface";
 
 export interface TestIssuer {
   issuer: string;
   jwksUrl: string;
+  storage: StorageAdapter;
   close(): Promise<void>;
   issueToken(claims?: Record<string, unknown>): Promise<string>;
   getFetchCount(): number;
@@ -18,6 +22,19 @@ export async function createTestIssuer(
 ): Promise<TestIssuer> {
   const { privateKey, publicKey } = await generateKeyPair("RS256");
   let fetchCount = 0;
+  const storage = memoryStorage();
+
+  await storage.createClient({
+    id: "test-client",
+    clientId: "svc_test_client",
+    clientSecret: "not-used-in-tests",
+    name: "order-processor",
+    scopes: ["read:orders", "write:inventory"],
+    createdAt: new Date(),
+    lastSeenAt: null,
+    active: true,
+    tokensInvalidBefore: null,
+  });
 
   const server = createServer(async (request, response) => {
     if (request.url !== "/.well-known/jwks.json") {
@@ -42,6 +59,7 @@ export async function createTestIssuer(
   return {
     issuer,
     jwksUrl: `${issuer}/.well-known/jwks.json`,
+    storage,
     close() {
       return closeServer(server);
     },
@@ -61,6 +79,7 @@ export async function createTestIssuer(
       return new SignJWT(payload)
         .setProtectedHeader({ alg: "RS256", kid: "test-key" })
         .setIssuer(issuer)
+        .setJti(`test-${randomUUID()}`)
         .setIssuedAt()
         .setExpirationTime("5m")
         .sign(privateKey);
@@ -182,20 +201,36 @@ async function exportPublicJwk(
 
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
-    if ("closeIdleConnections" in server) {
-      server.closeIdleConnections();
-    }
-    if ("closeAllConnections" in server) {
-      server.closeAllConnections();
-    }
+    try {
+      server.close((error) => {
+        if (
+          error &&
+          !(error instanceof Error && "code" in error && error.code === "ERR_SERVER_NOT_RUNNING")
+        ) {
+          reject(error);
+          return;
+        }
 
-    server.close((error) => {
-      if (error) {
-        reject(error);
+        if ("closeIdleConnections" in server) {
+          server.closeIdleConnections();
+        }
+        if ("closeAllConnections" in server) {
+          server.closeAllConnections();
+        }
+
+        resolve();
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "ERR_SERVER_NOT_RUNNING"
+      ) {
+        resolve();
         return;
       }
 
-      resolve();
-    });
+      reject(error);
+    }
   });
 }

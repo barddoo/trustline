@@ -8,6 +8,8 @@ export interface ServiceClient {
   scopes: string[];
   createdAt: Date;
   lastSeenAt: Date | null;
+  active: boolean;
+  tokensInvalidBefore: Date | null;
 }
 
 export interface SigningKey {
@@ -16,7 +18,13 @@ export interface SigningKey {
   privateKey: string;
   publicKey: string;
   createdAt: Date;
-  retiredAt: Date | null;
+  notBefore: Date;
+  notAfter: Date | null;
+}
+
+export interface RevokedToken {
+  jti: string;
+  expiresAt: Date;
 }
 
 export interface StorageAdapter {
@@ -25,9 +33,13 @@ export interface StorageAdapter {
   deleteClient(clientId: string): Promise<void>;
   listClients(): Promise<ServiceClient[]>;
   touchClient(clientId: string, lastSeenAt: Date): Promise<void>;
+  setClientActive(clientId: string, active: boolean): Promise<void>;
+  setTokensInvalidBefore(clientId: string, at: Date | null): Promise<void>;
   getSigningKeys(): Promise<SigningKey[]>;
   addSigningKey(key: SigningKey): Promise<void>;
-  retireKey(keyId: string): Promise<void>;
+  setSigningKeyNotAfter(keyId: string, notAfter: Date | null): Promise<void>;
+  findRevokedToken(jti: string): Promise<RevokedToken | null>;
+  revokeToken(token: RevokedToken): Promise<void>;
 }
 
 export interface SqlStorageOptions {
@@ -35,5 +47,6 @@ export interface SqlStorageOptions {
   tables?: {
     clients?: string;
     signingKeys?: string;
+    revokedTokens?: string;
   };
 }

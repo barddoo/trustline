@@ -3,6 +3,7 @@ import { errors, type JWTPayload, jwtVerify } from "jose";
 import { defaultJwksCache, type JwksCache } from "./cache";
 import { AuthError } from "./errors";
 import { hasRequiredScopes, parseScopes } from "./scopes";
+import type { StorageAdapter } from "../storage/interface";
 
 const DEFAULT_CLOCK_TOLERANCE_SECONDS = 5;
 
@@ -14,6 +15,7 @@ export interface GuardOptions {
   env?: string;
   clockTolerance?: number;
   jwksCache?: JwksCache;
+  storage: StorageAdapter;
 }
 
 export interface ServiceIdentity {
@@ -89,6 +91,25 @@ async function verifyWithCache(
     );
   }
 
+  const client = await options.storage.findClient(payload.sub);
+  if (!client || !client.active) {
+    throw new AuthError("invalid_token", "Token client is inactive", 401);
+  }
+
+  const jti = getJti(payload);
+  const revokedToken = await options.storage.findRevokedToken(jti);
+  if (revokedToken && revokedToken.expiresAt > new Date()) {
+    throw new AuthError("invalid_token", "Token has been revoked", 401);
+  }
+
+  if (client.tokensInvalidBefore) {
+    const issuedAt = getIssuedAt(payload);
+    const cutoff = Math.floor(client.tokensInvalidBefore.getTime() / 1000);
+    if (issuedAt < cutoff) {
+      throw new AuthError("invalid_token", "Token has been invalidated", 401);
+    }
+  }
+
   return {
     clientId: payload.sub,
     name: typeof payload.name === "string" ? payload.name : null,
@@ -153,4 +174,20 @@ function normalizeVerifyError(error: unknown): AuthError {
 
 function getScopeClaim(payload: JWTPayload): string | undefined {
   return typeof payload.scope === "string" ? payload.scope : undefined;
+}
+
+function getJti(payload: JWTPayload): string {
+  if (typeof payload.jti !== "string" || payload.jti.length === 0) {
+    throw new AuthError("invalid_token", "Token identifier is missing", 401);
+  }
+
+  return payload.jti;
+}
+
+function getIssuedAt(payload: JWTPayload): number {
+  if (typeof payload.iat !== "number") {
+    throw new AuthError("invalid_token", "Token issue time is missing", 401);
+  }
+
+  return payload.iat;
 }
