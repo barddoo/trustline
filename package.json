@@ -1,0 +1,11 @@
+{
+  "name": "trustline",
+  "version": "0.0.1",
+  "description": "Service identity and authorization for Node.js",
+  "main": "index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/barddoo/trustline"
+  }
+}
