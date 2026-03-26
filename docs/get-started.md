@@ -18,7 +18,9 @@ Today Trustline ships:
 - `guard.fastify()`
 - `guard.hono()`
 - `memoryStorage()`
-- `sqliteStorage(path)`
+- `sqliteStorage(path | database)`
+- `postgresStorage(pool)`
+- `mysqlStorage(pool)`
 
 That is enough to issue tokens, cache them on the caller side, and verify them locally on the receiving side without calling the provider on every request.
 

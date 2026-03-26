@@ -2,7 +2,8 @@ import { defineConfig } from "vitepress";
 
 export default defineConfig({
   title: "Trustline",
-  description: "Service identity and authorization for Node.js",
+  description:
+    "Service identity and authorization for modern JavaScript runtimes",
   cleanUrls: true,
   themeConfig: {
     nav: [

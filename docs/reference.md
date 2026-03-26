@@ -9,6 +9,8 @@ import {
   createGuard,
   createProvider,
   memoryStorage,
+  mysqlStorage,
+  postgresStorage,
   sqliteStorage,
 } from "trustline";
 import { createClient } from "trustline/client";
@@ -173,7 +175,21 @@ interface StorageAdapter {
 Bundled implementations:
 
 - `memoryStorage()`
-- `sqliteStorage(path)`
+- `sqliteStorage(path | database, options?)`
+- `postgresStorage(pool, options?)`
+- `mysqlStorage(pool, options?)`
+
+SQL-backed adapters accept:
+
+```ts
+interface SqlStorageOptions {
+  tablePrefix?: string;
+  tables?: {
+    clients?: string;
+    signingKeys?: string;
+  };
+}
+```
 
 ## Verification rules
 

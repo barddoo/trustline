@@ -1,7 +1,7 @@
 {
   "name": "trustline",
   "version": "0.0.1",
-  "description": "Service identity and authorization for Node.js",
+  "description": "Service identity and authorization for modern JavaScript runtimes",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.cjs",
@@ -10,6 +10,10 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -31,8 +35,12 @@
   "scripts": {
     "build": "tsup",
     "check": "biome check .",
+    "changeset": "changeset",
     "format": "biome check --write .",
     "lint": "biome lint .",
+    "release": "bun run release:check && changeset publish",
+    "release:check": "bun run build && bun run test && bun run typecheck",
+    "release:version": "changeset version",
     "test": "bunx vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -49,20 +57,25 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
     "jose": "^6.1.0",
+    "kysely": "^0.28.14",
+    "mysql2": "^3.20.0",
+    "pg": "^8.20.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@changesets/cli": "^2.30.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.1",
-    "@types/node": "^24.5.2",
+    "@types/node": "^24",
+    "@types/pg": "^8.20.0",
     "@types/supertest": "^6.0.3",
-    "express": "^5.1.0",
-    "fastify": "^5.8.4",
-    "hono": "^4.12.9",
+    "express": "^5",
+    "fastify": "^5",
+    "hono": "^4",
     "supertest": "^7.1.4",
     "tsup": "^8.5.0",
-    "typescript": "6.0.2",
-    "vitest": "4.1.1"
+    "typescript": "^6",
+    "vitest": "^4.1.1"
   }
 }

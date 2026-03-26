@@ -3,7 +3,7 @@ layout: home
 
 hero:
   name: "Trustline"
-  text: "Service identity and authorization for Node.js"
+  text: "Service identity and authorization for modern JavaScript runtimes"
   tagline: "Issue, fetch, cache, and verify machine-to-machine tokens with one library."
   actions:
     - theme: brand
@@ -38,7 +38,7 @@ Each piece is independently useful. You can use the full Trustline stack, or you
 
 ## Current status
 
-- Available now: `createProvider`, `createClient`, `createGuard`, `memoryStorage()`, and `sqliteStorage(path)`
+- Available now: `createProvider`, `createClient`, `createGuard`, `memoryStorage()`, `sqliteStorage(path | database)`, `postgresStorage(pool)`, and `mysqlStorage(pool)`
 - Implemented features: client credentials token issuance, JWKS publishing, token caching with refresh deduplication, local JWT verification, and Express/Fastify/Hono adapters
 - Planned next: key rotation overlap windows, revocation workflows, and broader operational controls
 

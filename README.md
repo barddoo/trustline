@@ -1,6 +1,6 @@
 # Trustline
 
-Service identity and authorization for Node.js.
+Service identity and authorization for modern JavaScript runtimes.
 
 Trustline is a machine-to-machine authentication library for internal services. It is designed around three independent entry points:
 
@@ -8,7 +8,7 @@ Trustline is a machine-to-machine authentication library for internal services. 
 - `trustline/client`: token fetching and caching for outgoing requests
 - `trustline/middleware`: token verification for receiving services
 
-The package now ships the first full stack: provider, client, guard, memory storage, and SQLite storage.
+The package now ships the first full stack: provider, client, guard, memory storage, and SQL storage adapters for SQLite, Postgres, and MySQL.
 
 ## Current status
 
@@ -19,6 +19,9 @@ Available now:
 - `createGuard(options)`
 - `memoryStorage()`
 - `sqliteStorage(path)`
+- `sqliteStorage(database)`
+- `postgresStorage(pool)`
+- `mysqlStorage(pool)`
 
 Implemented behavior:
 
@@ -50,6 +53,16 @@ npm install trustline
 ```
 
 If you are working from this repository before package publication, build the package locally and install or link it from the repo source.
+
+## Releasing
+
+Package releases are managed with Changesets and GitHub Actions. Add a changeset in each user-facing PR with:
+
+```bash
+bun run changeset
+```
+
+Merges to `main` update or create a release PR, and merging that release PR publishes to npm. See `RELEASING.md` for the full flow and npm trusted publishing setup.
 
 ## Quick start
 
@@ -232,7 +245,28 @@ Supported signing algorithms:
 Bundled storage adapters:
 
 - `memoryStorage()`
-- `sqliteStorage(path)`
+- `sqliteStorage(path | database)`
+- `postgresStorage(pool)`
+- `mysqlStorage(pool)`
+
+SQL adapters follow the Better Auth-style pattern of receiving ready-made database handles:
+
+```ts
+import Database from "better-sqlite3";
+import { createPool as createMysqlPool } from "mysql2";
+import { Pool as PostgresPool } from "pg";
+import {
+  mysqlStorage,
+  postgresStorage,
+  sqliteStorage,
+} from "trustline";
+
+const sqlite = sqliteStorage(new Database("./trustline.sqlite"));
+const postgres = postgresStorage(
+  new PostgresPool({ connectionString: process.env.DATABASE_URL }),
+);
+const mysql = mysqlStorage(createMysqlPool(process.env.DATABASE_URL!));
+```
 
 ## Documentation
 

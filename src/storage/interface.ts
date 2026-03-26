@@ -29,3 +29,11 @@ export interface StorageAdapter {
   addSigningKey(key: SigningKey): Promise<void>;
   retireKey(keyId: string): Promise<void>;
 }
+
+export interface SqlStorageOptions {
+  tablePrefix?: string;
+  tables?: {
+    clients?: string;
+    signingKeys?: string;
+  };
+}
