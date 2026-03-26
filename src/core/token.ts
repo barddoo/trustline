@@ -1,9 +1,8 @@
 import { errors, type JWTPayload, jwtVerify } from "jose";
-
+import type { StorageAdapter } from "../storage/interface";
 import { defaultJwksCache, type JwksCache } from "./cache";
 import { AuthError } from "./errors";
 import { hasRequiredScopes, parseScopes } from "./scopes";
-import type { StorageAdapter } from "../storage/interface";
 
 const DEFAULT_CLOCK_TOLERANCE_SECONDS = 5;
 
@@ -92,7 +91,7 @@ async function verifyWithCache(
   }
 
   const client = await options.storage.findClient(payload.sub);
-  if (!client || !client.active) {
+  if (!client?.active) {
     throw new AuthError("invalid_token", "Token client is inactive", 401);
   }
 

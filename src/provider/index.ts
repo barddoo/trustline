@@ -60,6 +60,7 @@ export interface Provider {
     disable(clientId: string): Promise<void>;
     enable(clientId: string): Promise<void>;
     invalidateTokensBefore(clientId: string, at?: Date): Promise<void>;
+    clearTokensInvalidBefore(clientId: string): Promise<void>;
   };
   keys: {
     rotate(input?: RotateSigningKeyInput): Promise<{ keyId: string }>;
@@ -97,6 +98,9 @@ export function createProvider(options: ProviderOptions): Provider {
       },
       invalidateTokensBefore(clientId, at) {
         return provider.invalidateTokensBefore(clientId, at);
+      },
+      clearTokensInvalidBefore(clientId) {
+        return provider.clearTokensInvalidBefore(clientId);
       },
     },
     keys: {
@@ -173,6 +177,10 @@ class TrustlineProvider {
 
   invalidateTokensBefore(clientId: string, at = new Date()): Promise<void> {
     return this.options.storage.setTokensInvalidBefore(clientId, at);
+  }
+
+  clearTokensInvalidBefore(clientId: string): Promise<void> {
+    return this.options.storage.setTokensInvalidBefore(clientId, null);
   }
 
   revokeToken(token: RevokedToken): Promise<void> {
@@ -252,7 +260,10 @@ class TrustlineProvider {
       );
     }
 
-    const grantedScopes = resolveGrantedScopes(body.get("scope"), client.scopes);
+    const grantedScopes = resolveGrantedScopes(
+      body.get("scope"),
+      client.scopes,
+    );
     if (!grantedScopes) {
       return jsonResponse(
         {
@@ -311,7 +322,9 @@ class TrustlineProvider {
   }
 
   private async getJwks(): Promise<JSONWebKeySet> {
-    const keys = getVerificationSigningKeys(await this.options.storage.getSigningKeys());
+    const keys = getVerificationSigningKeys(
+      await this.options.storage.getSigningKeys(),
+    );
     if (keys.length === 0) {
       await this.ensureSigningKeyForIssuance();
       return this.getJwks();
@@ -323,7 +336,9 @@ class TrustlineProvider {
   }
 
   private async ensureSigningKeyForIssuance(): Promise<SigningKey> {
-    const current = getSigningKeyForIssuance(await this.options.storage.getSigningKeys());
+    const current = getSigningKeyForIssuance(
+      await this.options.storage.getSigningKeys(),
+    );
     if (current) {
       return current;
     }

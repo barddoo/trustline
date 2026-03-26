@@ -97,6 +97,8 @@ issuer: https://auth.internal
 jwks:   https://auth.internal/.well-known/jwks.json
 ```
 
+Operational controls already implemented in the current provider include requested-scope narrowing, token revocation by `jti`, client disable and re-enable, client token cutoffs, and signing key rotation with overlap windows.
+
 ## Bun
 
 Trustline does not need a Bun-specific adapter. Bun already uses the standard Web `Request` and `Response` APIs, so use the provider's `handle()` method directly and call `guard.verify()` inside your `fetch` handler.
@@ -206,6 +208,9 @@ interface ServiceIdentity {
 Adapter surface:
 
 - `provider.handle(request)`
+- `provider.clients.create/list/revoke/disable/enable/invalidateTokensBefore/clearTokensInvalidBefore`
+- `provider.keys.rotate`
+- `provider.tokens.revoke`
 - `guard.verify(token)`
 - `createExpressProvider(provider)`
 - `createExpressGuard(guard)`

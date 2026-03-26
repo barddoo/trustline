@@ -91,7 +91,9 @@ export function getSigningKeyForIssuance(
       (key) =>
         key.notBefore <= now && (key.notAfter === null || key.notAfter > now),
     )
-    .sort((left, right) => right.notBefore.getTime() - left.notBefore.getTime());
+    .sort(
+      (left, right) => right.notBefore.getTime() - left.notBefore.getTime(),
+    );
 
   return activeKeys[0] ?? null;
 }

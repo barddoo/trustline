@@ -22,9 +22,7 @@ export function createHonoProvider(provider: Provider): Hono {
   );
 
   app.post("/token", async (context) =>
-    provider.handle(
-      createForwardedRequest(context.req.raw),
-    ),
+    provider.handle(createForwardedRequest(context.req.raw)),
   );
 
   return app;

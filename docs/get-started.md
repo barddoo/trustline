@@ -27,6 +27,8 @@ Today Trustline ships:
 
 That is enough to issue tokens, cache them on the caller side, and verify them locally on the receiving side without calling the provider on every request.
 
+The current provider surface also includes operational controls for requested scope narrowing, token revocation by `jti`, client disable and re-enable, client token cutoffs, and signing key rotation with overlap windows.
+
 ## Installation
 
 Trustline is intended to be consumed as the `trustline` package, and the examples below use the final import paths:
@@ -198,5 +200,6 @@ app.get("/orders", async (request: TrustlineRequest, response) => {
 
 - [Concepts](/concepts) for token shape and verification rules
 - [Middleware](/middleware) for cache behavior and verification details
+- [Operations](/operations) for revocation, cutoffs, and rotation workflows
 - [Reference](/reference) for the current public API
 - [Roadmap](/roadmap) for what is still planned beyond the current release

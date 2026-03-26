@@ -5,15 +5,13 @@ Trustline now ships the initial provider, client, middleware, and storage adapte
 ## Current status
 
 - Implemented now: provider, client, guard, memory storage, SQLite storage, and Express/Fastify/Hono adapters
-- Planned next: key rotation overlap windows, token revocation, narrower scope requests, and more operational controls
+- Implemented Phase 1 controls: key rotation overlap windows, token revocation, narrower scope requests, and client disable/token cutoff controls
+- Planned next: client secret rotation, richer client management, audit hooks, pluggable client caches, and broader operational controls
 
 ## Planned security and operations work
 
 Later phases in the project brief include:
 
-- multiple active signing keys with overlap windows
-- explicit `jti` revocation support
-- requested-scope narrowing during token issuance
 - stronger provider mount-path guidance for root JWKS publishing
 - broader integration coverage across runtimes
 

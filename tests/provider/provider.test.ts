@@ -126,6 +126,54 @@ describe("provider", () => {
     }
   });
 
+  it("preserves scopes when the requested set exactly matches the client permissions", async () => {
+    const storage = memoryStorage();
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage,
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "order-processor",
+        scopes: ["read:orders", "write:inventory"],
+      });
+
+      const response = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "client_credentials",
+          scope: "read:orders write:inventory",
+        }).toString(),
+      });
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        access_token: string;
+        scope: string;
+      };
+
+      const guard = createGuard({
+        issuer: server.issuer,
+        storage,
+      });
+      const identity = await guard.verify(payload.access_token);
+
+      expect(payload.scope).toBe("read:orders write:inventory");
+      expect(identity.scopes).toEqual(["read:orders", "write:inventory"]);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("rejects requested scopes outside the client permissions", async () => {
     const server = await createProviderServer((issuer) =>
       createProvider({
@@ -224,9 +272,10 @@ describe("provider", () => {
       });
       const payload = (await response.json()) as { access_token: string };
       const claims = JSON.parse(
-        Buffer.from(payload.access_token.split(".")[1] ?? "", "base64url").toString(
-          "utf8",
-        ),
+        Buffer.from(
+          payload.access_token.split(".")[1] ?? "",
+          "base64url",
+        ).toString("utf8"),
       ) as { exp: number; jti: string };
 
       await server.provider.tokens.revoke(
@@ -271,7 +320,9 @@ describe("provider", () => {
         },
         body: "grant_type=client_credentials",
       });
-      const firstPayload = (await firstResponse.json()) as { access_token: string };
+      const firstPayload = (await firstResponse.json()) as {
+        access_token: string;
+      };
       const firstClaims = JSON.parse(
         Buffer.from(
           firstPayload.access_token.split(".")[1] ?? "",
@@ -305,10 +356,72 @@ describe("provider", () => {
         storage,
       });
 
-      await expect(guard.verify(firstPayload.access_token)).rejects.toMatchObject({
+      await expect(
+        guard.verify(firstPayload.access_token),
+      ).rejects.toMatchObject({
         code: "invalid_token",
       });
-      await expect(guard.verify(secondPayload.access_token)).resolves.toMatchObject({
+      await expect(
+        guard.verify(secondPayload.access_token),
+      ).resolves.toMatchObject({
+        clientId: created.clientId,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("restores verification after clearing the client cutoff", async () => {
+    const storage = memoryStorage();
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage,
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "order-processor",
+      });
+
+      const response = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      const payload = (await response.json()) as { access_token: string };
+      const claims = JSON.parse(
+        Buffer.from(
+          payload.access_token.split(".")[1] ?? "",
+          "base64url",
+        ).toString("utf8"),
+      ) as { iat: number };
+
+      const cutoff = new Date((claims.iat + 1) * 1000);
+      await server.provider.clients.invalidateTokensBefore(
+        created.clientId,
+        cutoff,
+      );
+      await waitFor(cutoff.getTime() - Date.now() + 50);
+
+      const guard = createGuard({
+        issuer: server.issuer,
+        storage,
+      });
+
+      await expect(guard.verify(payload.access_token)).rejects.toMatchObject({
+        code: "invalid_token",
+      });
+
+      await server.provider.clients.clearTokensInvalidBefore(created.clientId);
+
+      await expect(guard.verify(payload.access_token)).resolves.toMatchObject({
         clientId: created.clientId,
       });
     } finally {
@@ -340,7 +453,9 @@ describe("provider", () => {
         },
         body: "grant_type=client_credentials",
       });
-      const firstPayload = (await firstResponse.json()) as { access_token: string };
+      const firstPayload = (await firstResponse.json()) as {
+        access_token: string;
+      };
 
       await server.provider.keys.rotate({ overlapSeconds: 300 });
 
@@ -363,10 +478,14 @@ describe("provider", () => {
         storage,
       });
 
-      await expect(guard.verify(firstPayload.access_token)).resolves.toMatchObject({
+      await expect(
+        guard.verify(firstPayload.access_token),
+      ).resolves.toMatchObject({
         clientId: created.clientId,
       });
-      await expect(guard.verify(secondPayload.access_token)).resolves.toMatchObject({
+      await expect(
+        guard.verify(secondPayload.access_token),
+      ).resolves.toMatchObject({
         clientId: created.clientId,
       });
     } finally {

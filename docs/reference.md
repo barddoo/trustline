@@ -67,7 +67,27 @@ interface Provider {
     }>;
     list(): Promise<ServiceClient[]>;
     revoke(clientId: string): Promise<void>;
+    disable(clientId: string): Promise<void>;
+    enable(clientId: string): Promise<void>;
+    invalidateTokensBefore(clientId: string, at?: Date): Promise<void>;
+    clearTokensInvalidBefore(clientId: string): Promise<void>;
   };
+  keys: {
+    rotate(input?: RotateSigningKeyInput): Promise<{ keyId: string }>;
+  };
+  tokens: {
+    revoke(jti: string, expiresAt: Date): Promise<void>;
+  };
+}
+```
+
+```ts
+interface RotateSigningKeyInput {
+  activateAt?: Date;
+  algorithm?: "ES256" | "RS256";
+  keyId?: string;
+  overlapSeconds?: number;
+  privateKey?: string;
 }
 ```
 
@@ -175,9 +195,13 @@ interface StorageAdapter {
   deleteClient(clientId: string): Promise<void>;
   listClients(): Promise<ServiceClient[]>;
   touchClient(clientId: string, lastSeenAt: Date): Promise<void>;
+  setClientActive(clientId: string, active: boolean): Promise<void>;
+  setTokensInvalidBefore(clientId: string, at: Date | null): Promise<void>;
   getSigningKeys(): Promise<SigningKey[]>;
   addSigningKey(key: SigningKey): Promise<void>;
-  retireKey(keyId: string): Promise<void>;
+  setSigningKeyNotAfter(keyId: string, notAfter: Date | null): Promise<void>;
+  findRevokedToken(jti: string): Promise<RevokedToken | null>;
+  revokeToken(token: RevokedToken): Promise<void>;
 }
 ```
 
@@ -198,6 +222,7 @@ interface SqlStorageOptions {
   tables?: {
     clients?: string;
     signingKeys?: string;
+    revokedTokens?: string;
   };
 }
 ```
@@ -212,4 +237,7 @@ Current verifier behavior:
 - validates `aud` only when configured
 - validates `scope` only when configured
 - validates `env` only when configured
+- rejects tokens for inactive clients
+- rejects revoked tokens by `jti` until expiration
+- rejects tokens issued before a client cutoff
 - parses `scope` as a space-delimited string

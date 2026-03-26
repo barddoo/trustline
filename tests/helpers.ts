@@ -205,7 +205,11 @@ function closeServer(server: Server): Promise<void> {
       server.close((error) => {
         if (
           error &&
-          !(error instanceof Error && "code" in error && error.code === "ERR_SERVER_NOT_RUNNING")
+          !(
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ERR_SERVER_NOT_RUNNING"
+          )
         ) {
           reject(error);
           return;

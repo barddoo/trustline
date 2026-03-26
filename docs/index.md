@@ -40,8 +40,8 @@ Each piece is independently useful. You can use the full Trustline stack, or you
 ## Current status
 
 - Available now: `createProvider`, `createClient`, `createGuard`, `memoryStorage()`, framework subpaths under `trustline/frameworks/*`, and SQL adapter subpaths under `trustline/adapters/*`
-- Implemented features: client credentials token issuance, JWKS publishing, token caching with refresh deduplication, local JWT verification, and Express/Fastify/Hono adapters
-- Planned next: key rotation overlap windows, revocation workflows, and broader operational controls
+- Implemented features: requested-scope narrowing, token revocation by `jti`, client disable and token cutoffs, signing key rotation overlap windows, token caching with refresh deduplication, local JWT verification, and Express/Fastify/Hono adapters
+- Planned next: client secret rotation, richer client management, audit hooks, pluggable client caches, and broader operational controls
 
 ## First working example
 
@@ -72,4 +72,4 @@ const token = await caller.getToken();
 const identity = await guard.verify(token);
 ```
 
-Continue with [Get Started](/get-started) for setup and [Reference](/reference) for the current public API.
+Continue with [Get Started](/get-started) for setup, [Operations](/operations) for Phase 1 controls, and [Reference](/reference) for the current public API.
