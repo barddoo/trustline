@@ -23,11 +23,7 @@ export function createHonoProvider(provider: Provider): Hono {
 
   app.post("/token", async (context) =>
     provider.handle(
-      new Request(context.req.raw.url, {
-        method: "POST",
-        headers: context.req.raw.headers,
-        body: context.req.raw.body,
-      }),
+      createForwardedRequest(context.req.raw),
     ),
   );
 
@@ -85,4 +81,19 @@ function getBearerToken(header: string | undefined): string | null {
   }
 
   return token;
+}
+
+function createForwardedRequest(request: Request): Request {
+  const hasBody = request.method !== "GET" && request.method !== "HEAD";
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers: request.headers,
+  };
+
+  if (hasBody) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+
+  return new Request(request.url, init);
 }
