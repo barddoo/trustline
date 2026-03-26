@@ -1,5 +1,8 @@
 # Trustline
 
+[![npm version](https://img.shields.io/npm/v/trustline)](https://www.npmjs.com/package/trustline)
+[![docs](https://img.shields.io/badge/docs-github%20pages-blue)](https://barddoo.github.io/trustline/)
+
 Service identity and authorization for modern JavaScript runtimes.
 
 Trustline is a machine-to-machine authentication library for internal services. It is designed around dedicated core and integration entry points:
@@ -10,39 +13,6 @@ Trustline is a machine-to-machine authentication library for internal services. 
 - `trustline/adapters/*`: SQL storage adapters
 
 The package now ships the first full stack: provider, client, guard, framework adapters, memory storage, and SQL storage adapters for SQLite, Postgres, and MySQL.
-
-## Current status
-
-Available now:
-
-- `createProvider(options)`
-- `createClient(options)`
-- `createGuard(options)`
-- `memoryStorage()`
-- `createExpressProvider(provider)`
-- `createExpressGuard(guard)`
-- `createFastifyProvider(provider)`
-- `createFastifyGuard(guard)`
-- `createHonoProvider(provider)`
-- `createHonoGuard(guard)`
-- `sqliteStorage(path | database)`
-- `postgresStorage(pool)`
-- `mysqlStorage(pool)`
-
-Implemented behavior:
-
-- client credentials token issuance
-- JWKS publishing
-- token caching with proactive refresh and request deduplication
-- issuer, audience, scope, and environment verification
-- JWKS discovery and caching
-- Express, Fastify, and Hono adapters
-
-Planned next:
-
-- key rotation overlap windows
-- token revocation workflows
-- requested-scope narrowing during issuance
 
 ## Installation
 
@@ -68,16 +38,6 @@ npm install trustline better-sqlite3 kysely
 ```
 
 If you are working from this repository before package publication, build the package locally and install or link it from the repo source.
-
-## Releasing
-
-Package releases are managed with Changesets and GitHub Actions. Add a changeset in each user-facing PR with:
-
-```bash
-bun run changeset
-```
-
-Merges to `main` update or create a release PR, and merging that release PR publishes to npm. See `RELEASING.md` for the full flow and npm trusted publishing setup.
 
 ## Quick start
 
