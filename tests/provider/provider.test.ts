@@ -493,6 +493,238 @@ describe("provider", () => {
     }
   });
 
+  it("gets, renames, and updates client scopes", async () => {
+    const storage = memoryStorage();
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage,
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "order-processor",
+        scopes: ["read:orders", "write:inventory"],
+      });
+
+      const fetched = await server.provider.clients.get(created.clientId);
+      expect(fetched).toMatchObject({
+        clientId: created.clientId,
+        name: "order-processor",
+      });
+      expect(fetched).not.toHaveProperty("currentSecretHash");
+      expect(fetched).not.toHaveProperty("nextSecretHash");
+
+      await server.provider.clients.rename(created.clientId, "inventory-sync");
+      await server.provider.clients.updateScopes(created.clientId, [
+        "sync:run",
+      ]);
+
+      const renamed = await server.provider.clients.get(created.clientId);
+      expect(renamed).toMatchObject({
+        clientId: created.clientId,
+        name: "inventory-sync",
+        scopes: ["sync:run"],
+      });
+
+      const response = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        scope: "sync:run",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rotates client secrets with overlap and updates usage metadata", async () => {
+    const storage = memoryStorage();
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage,
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "billing-worker",
+      });
+
+      const rotation = await server.provider.clients.rotateSecret(
+        created.clientId,
+        { overlapSeconds: 1 },
+      );
+
+      const oldSecretResponse = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      expect(oldSecretResponse.status).toBe(200);
+
+      const newSecretResponse = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${rotation.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      expect(newSecretResponse.status).toBe(200);
+
+      const duringOverlap = await server.provider.clients.get(created.clientId);
+      expect(duringOverlap?.hasPendingSecretRotation).toBe(true);
+      expect(duringOverlap?.nextSecretExpiresAt).toBeInstanceOf(Date);
+      expect(duringOverlap?.currentSecretLastUsedAt).toBeInstanceOf(Date);
+      expect(duringOverlap?.nextSecretLastUsedAt).toBeInstanceOf(Date);
+      expect(duringOverlap?.secretLastRotatedAt).toBeInstanceOf(Date);
+      expect(duringOverlap).not.toHaveProperty("currentSecretHash");
+      expect(duringOverlap).not.toHaveProperty("nextSecretHash");
+
+      await waitFor(1_100);
+
+      const expiredSecretResponse = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      expect(expiredSecretResponse.status).toBe(401);
+
+      const promoted = await server.provider.clients.get(created.clientId);
+      expect(promoted?.hasPendingSecretRotation).toBe(false);
+      expect(promoted?.nextSecretExpiresAt).toBeNull();
+      expect(promoted?.currentSecretLastUsedAt).toBeInstanceOf(Date);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rotates client secrets immediately when no overlap is requested", async () => {
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage: memoryStorage(),
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "billing-worker",
+      });
+
+      const rotation = await server.provider.clients.rotateSecret(
+        created.clientId,
+        { overlapSeconds: 0 },
+      );
+
+      const oldSecretResponse = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${created.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      expect(oldSecretResponse.status).toBe(401);
+
+      const newSecretResponse = await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:${rotation.clientSecret}`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+      expect(newSecretResponse.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("emits provider lifecycle and token events", async () => {
+    const events: string[] = [];
+    const server = await createProviderServer((issuer) =>
+      createProvider({
+        issuer,
+        storage: memoryStorage(),
+        hooks: {
+          onEvent(event) {
+            events.push(event.type);
+          },
+        },
+      }),
+    );
+
+    try {
+      const created = await server.provider.clients.create({
+        name: "worker",
+        scopes: ["jobs:run"],
+      });
+      await server.provider.clients.rename(created.clientId, "worker-v2");
+      await server.provider.clients.updateScopes(created.clientId, [
+        "jobs:read",
+      ]);
+      await server.provider.clients.disable(created.clientId);
+      await server.provider.clients.enable(created.clientId);
+      await server.provider.clients.rotateSecret(created.clientId, {
+        overlapSeconds: 0,
+      });
+
+      await fetch(server.url("/token"), {
+        method: "POST",
+        headers: {
+          authorization: `Basic ${Buffer.from(
+            `${created.clientId}:wrong-secret`,
+          ).toString("base64")}`,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "grant_type=client_credentials",
+      });
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          "client.created",
+          "client.renamed",
+          "client.scopes_updated",
+          "client.deactivated",
+          "client.activated",
+          "client.secret_rotated",
+          "token.issuance_failed",
+        ]),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   it("rejects invalid client secrets", async () => {
     const server = await createProviderServer((issuer) =>
       createProvider({

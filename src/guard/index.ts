@@ -1,7 +1,15 @@
-import type { GuardOptions, ServiceIdentity } from "../core/token";
-import { verifyToken } from "../core/token";
+import {
+  type GuardOptions,
+  type ServiceIdentity,
+  verifyToken,
+} from "../core/token";
 
-export type { GuardOptions, ServiceIdentity } from "../core/token";
+export type {
+  GuardEvent,
+  GuardHooks,
+  GuardOptions,
+  ServiceIdentity,
+} from "../core/token";
 
 export interface Guard {
   verify(token: string): Promise<ServiceIdentity>;

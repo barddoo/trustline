@@ -1,6 +1,10 @@
 import { errors, type JWTPayload, jwtVerify } from "jose";
 import type { StorageAdapter } from "../storage/interface";
-import { defaultJwksCache, type JwksCache } from "./cache";
+import {
+  defaultJwksCache,
+  type JwksCache,
+  type JwksCacheResult,
+} from "./cache";
 import { AuthError } from "./errors";
 import { hasRequiredScopes, parseScopes } from "./scopes";
 
@@ -14,7 +18,30 @@ export interface GuardOptions {
   env?: string;
   clockTolerance?: number;
   jwksCache?: JwksCache;
+  hooks?: GuardHooks;
   storage: StorageAdapter;
+}
+
+export interface GuardEventBase {
+  type:
+    | "token.verified"
+    | "token.verification_failed"
+    | "jwks.refreshed"
+    | "jwks.refresh_failed";
+  timestamp: Date;
+  issuer: string;
+  outcome: "success" | "failure";
+  clientId?: string;
+  audience?: string | string[];
+  reasonCode?: string;
+}
+
+export interface GuardEvent extends GuardEventBase {
+  metadata?: Record<string, unknown>;
+}
+
+export interface GuardHooks {
+  onEvent?(event: GuardEvent): void | Promise<void>;
 }
 
 export interface ServiceIdentity {
@@ -42,16 +69,68 @@ export async function verifyToken(
   const jwksCache = options.jwksCache ?? defaultJwksCache;
 
   try {
-    return await verifyWithCache(token, options, jwksUrl, jwksCache);
+    const identity = await verifyWithCache(token, options, jwksUrl, jwksCache);
+    await emitGuardEvent(options, {
+      type: "token.verified",
+      timestamp: new Date(),
+      issuer: options.issuer,
+      outcome: "success",
+      clientId: identity.clientId,
+      audience: options.audience,
+      metadata: {
+        scopes: identity.scopes,
+      },
+    });
+    return identity;
   } catch (error) {
     if (!shouldRetryWithFreshJwks(error)) {
-      throw normalizeVerifyError(error);
+      const normalized = normalizeVerifyError(error);
+      await emitGuardEvent(options, {
+        type: "token.verification_failed",
+        timestamp: new Date(),
+        issuer: options.issuer,
+        outcome: "failure",
+        audience: options.audience,
+        reasonCode: normalized.code,
+      });
+      throw normalized;
     }
 
     try {
-      return await verifyWithCache(token, options, jwksUrl, jwksCache, true);
+      const identity = await verifyWithCache(
+        token,
+        options,
+        jwksUrl,
+        jwksCache,
+        true,
+      );
+      await emitGuardEvent(options, {
+        type: "token.verified",
+        timestamp: new Date(),
+        issuer: options.issuer,
+        outcome: "success",
+        clientId: identity.clientId,
+        audience: options.audience,
+        metadata: {
+          scopes: identity.scopes,
+          refreshedJwks: true,
+        },
+      });
+      return identity;
     } catch (retryError) {
-      throw normalizeVerifyError(retryError);
+      const normalized = normalizeVerifyError(retryError);
+      await emitGuardEvent(options, {
+        type: "token.verification_failed",
+        timestamp: new Date(),
+        issuer: options.issuer,
+        outcome: "failure",
+        audience: options.audience,
+        reasonCode: normalized.code,
+        metadata: {
+          refreshedJwks: true,
+        },
+      });
+      throw normalized;
     }
   }
 }
@@ -63,8 +142,40 @@ async function verifyWithCache(
   jwksCache: JwksCache,
   forceRefresh = false,
 ): Promise<ServiceIdentity> {
-  const jwkSet = await jwksCache.get(jwksUrl, forceRefresh);
-  const { payload } = await jwtVerify(token, jwkSet, {
+  let jwkSetResult: JwksCacheResult;
+  try {
+    jwkSetResult = await jwksCache.get(jwksUrl, forceRefresh);
+  } catch (error) {
+    await emitGuardEvent(options, {
+      type: "jwks.refresh_failed",
+      timestamp: new Date(),
+      issuer: options.issuer,
+      outcome: "failure",
+      audience: options.audience,
+      reasonCode: error instanceof AuthError ? error.code : "jwks_fetch_failed",
+      metadata: {
+        jwksUrl,
+        forceRefresh,
+      },
+    });
+    throw error;
+  }
+
+  if (jwkSetResult.refreshed) {
+    await emitGuardEvent(options, {
+      type: "jwks.refreshed",
+      timestamp: new Date(),
+      issuer: options.issuer,
+      outcome: "success",
+      audience: options.audience,
+      metadata: {
+        jwksUrl,
+        forceRefresh,
+      },
+    });
+  }
+
+  const { payload } = await jwtVerify(token, jwkSetResult.jwkSet, {
     issuer: options.issuer,
     audience: options.audience,
     algorithms: ["RS256", "ES256"],
@@ -116,6 +227,17 @@ async function verifyWithCache(
     env: typeof payload.env === "string" ? payload.env : null,
     raw: payload as JWTPayload & Record<string, unknown>,
   };
+}
+
+async function emitGuardEvent(
+  options: GuardOptions,
+  event: GuardEvent,
+): Promise<void> {
+  try {
+    await options.hooks?.onEvent?.(event);
+  } catch {
+    // Hooks are observational and must not break verification.
+  }
 }
 
 function shouldRetryWithFreshJwks(error: unknown): boolean {

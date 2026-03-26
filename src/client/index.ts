@@ -5,8 +5,20 @@ export interface ClientOptions {
   clientId: string;
   clientSecret: string;
   audience?: string;
+  cache?: ClientTokenCache;
   fetch?: typeof globalThis.fetch;
   refreshSkewSeconds?: number;
+}
+
+export interface CachedClientToken {
+  token: string;
+  refreshAt: number;
+}
+
+export interface ClientTokenCache {
+  get(key: string): Promise<CachedClientToken | null>;
+  set(key: string, entry: CachedClientToken): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 export interface TrustlineClient {
@@ -15,22 +27,18 @@ export interface TrustlineClient {
   fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
 }
 
-interface CachedToken {
-  token: string;
-  refreshAt: number;
-}
-
 const DEFAULT_REFRESH_SKEW_SECONDS = 30;
 
 export function createClient(options: ClientOptions): TrustlineClient {
-  let cachedToken: CachedToken | null = null;
   let inflight: Promise<string> | null = null;
   const fetchImpl = options.fetch ?? globalThis.fetch;
+  const cache = options.cache ?? createMemoryTokenCache();
+  const cacheKey = createCacheKey(options);
 
   return {
     async getToken() {
-      const now = Date.now();
-      if (cachedToken && cachedToken.refreshAt > now) {
+      const cachedToken = await getFreshCachedToken(cache, cacheKey);
+      if (cachedToken) {
         return cachedToken.token;
       }
 
@@ -39,8 +47,8 @@ export function createClient(options: ClientOptions): TrustlineClient {
       }
 
       inflight = fetchToken(options, fetchImpl)
-        .then((result) => {
-          cachedToken = result;
+        .then(async (result) => {
+          await cache.set(cacheKey, result);
           return result.token;
         })
         .finally(() => {
@@ -69,7 +77,7 @@ export function createClient(options: ClientOptions): TrustlineClient {
 async function fetchToken(
   options: ClientOptions,
   fetchImpl: typeof globalThis.fetch,
-): Promise<CachedToken> {
+): Promise<CachedClientToken> {
   const body = new URLSearchParams({
     grant_type: "client_credentials",
   });
@@ -125,6 +133,36 @@ async function fetchToken(
   };
 }
 
+async function getFreshCachedToken(
+  cache: ClientTokenCache,
+  cacheKey: string,
+): Promise<CachedClientToken | null> {
+  const cachedToken = await cache.get(cacheKey);
+  if (!cachedToken) {
+    return null;
+  }
+
+  if (
+    typeof cachedToken.token !== "string" ||
+    typeof cachedToken.refreshAt !== "number"
+  ) {
+    await cache.delete(cacheKey);
+    return null;
+  }
+
+  if (getTokenExpiration(cachedToken.token) === null) {
+    await cache.delete(cacheKey);
+    return null;
+  }
+
+  if (cachedToken.refreshAt <= Date.now()) {
+    await cache.delete(cacheKey);
+    return null;
+  }
+
+  return cachedToken;
+}
+
 function createBasicAuthHeader(clientId: string, clientSecret: string): string {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
@@ -143,4 +181,28 @@ function getTokenExpiration(token: string): number | null {
   } catch {
     return null;
   }
+}
+
+function createCacheKey(options: ClientOptions): string {
+  return JSON.stringify({
+    tokenUrl: options.tokenUrl,
+    clientId: options.clientId,
+    audience: options.audience ?? null,
+  });
+}
+
+function createMemoryTokenCache(): ClientTokenCache {
+  const cache = new Map<string, CachedClientToken>();
+
+  return {
+    async get(key) {
+      return cache.get(key) ?? null;
+    },
+    async set(key, entry) {
+      cache.set(key, entry);
+    },
+    async delete(key) {
+      cache.delete(key);
+    },
+  };
 }

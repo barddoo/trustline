@@ -1,4 +1,6 @@
+import { verifySecret } from "../core/crypto";
 import type {
+  ClientSecretRecord,
   RevokedToken,
   ServiceClient,
   SigningKey,
@@ -23,6 +25,20 @@ export function memoryStorage(): StorageAdapter {
     },
     async listClients() {
       return [...clients.values()].map(cloneClient);
+    },
+    async updateClient(clientId, updates) {
+      const client = clients.get(clientId);
+      if (!client) {
+        return;
+      }
+
+      clients.set(
+        clientId,
+        cloneClient({
+          ...client,
+          ...updates,
+        }),
+      );
     },
     async touchClient(clientId, lastSeenAt) {
       const client = clients.get(clientId);
@@ -57,6 +73,26 @@ export function memoryStorage(): StorageAdapter {
         tokensInvalidBefore,
       });
     },
+    async findClientBySecret(secret) {
+      for (const client of clients.values()) {
+        if (await verifySecret(secret, client.currentSecretHash)) {
+          return createClientSecretRecord(client, "current");
+        }
+
+        const nextSecretExpired =
+          client.nextSecretExpiresAt &&
+          client.nextSecretExpiresAt.getTime() <= Date.now();
+        if (
+          client.nextSecretHash &&
+          !nextSecretExpired &&
+          (await verifySecret(secret, client.nextSecretHash))
+        ) {
+          return createClientSecretRecord(client, "next");
+        }
+      }
+
+      return null;
+    },
     async getSigningKeys() {
       return [...signingKeys.values()].map(cloneSigningKey);
     },
@@ -89,10 +125,49 @@ function cloneClient(client: ServiceClient): ServiceClient {
     ...client,
     scopes: [...client.scopes],
     createdAt: new Date(client.createdAt),
+    updatedAt: new Date(client.updatedAt),
     lastSeenAt: client.lastSeenAt ? new Date(client.lastSeenAt) : null,
+    currentSecretCreatedAt: new Date(client.currentSecretCreatedAt),
+    currentSecretLastUsedAt: client.currentSecretLastUsedAt
+      ? new Date(client.currentSecretLastUsedAt)
+      : null,
+    nextSecretCreatedAt: client.nextSecretCreatedAt
+      ? new Date(client.nextSecretCreatedAt)
+      : null,
+    nextSecretExpiresAt: client.nextSecretExpiresAt
+      ? new Date(client.nextSecretExpiresAt)
+      : null,
+    nextSecretLastUsedAt: client.nextSecretLastUsedAt
+      ? new Date(client.nextSecretLastUsedAt)
+      : null,
+    secretLastRotatedAt: client.secretLastRotatedAt
+      ? new Date(client.secretLastRotatedAt)
+      : null,
     active: client.active,
     tokensInvalidBefore: client.tokensInvalidBefore
       ? new Date(client.tokensInvalidBefore)
+      : null,
+  };
+}
+
+function createClientSecretRecord(
+  client: ServiceClient,
+  secretKind: "current" | "next",
+): ClientSecretRecord {
+  return {
+    clientId: client.clientId,
+    secretKind,
+    secretHash:
+      secretKind === "current"
+        ? client.currentSecretHash
+        : (client.nextSecretHash as string),
+    currentSecretHash: client.currentSecretHash,
+    nextSecretHash: client.nextSecretHash,
+    nextSecretCreatedAt: client.nextSecretCreatedAt
+      ? new Date(client.nextSecretCreatedAt)
+      : null,
+    nextSecretExpiresAt: client.nextSecretExpiresAt
+      ? new Date(client.nextSecretExpiresAt)
       : null,
   };
 }

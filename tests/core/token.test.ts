@@ -189,6 +189,54 @@ describe("verifyToken", () => {
     });
   });
 
+  it("emits guard hook events for verification and JWKS refresh outcomes", async () => {
+    const issuer = await createTestIssuer({ aud: "inventory-service" });
+    const cache = new JwksCache({ ttlMs: 0 });
+    const events: string[] = [];
+
+    try {
+      const token = await issuer.issueToken();
+
+      await verifyToken(token, {
+        issuer: issuer.issuer,
+        audience: "inventory-service",
+        jwksCache: cache,
+        storage: issuer.storage,
+        hooks: {
+          onEvent(event) {
+            events.push(event.type);
+          },
+        },
+      });
+
+      await expect(
+        verifyToken(token, {
+          issuer: issuer.issuer,
+          audience: "billing-service",
+          jwksCache: cache,
+          storage: issuer.storage,
+          hooks: {
+            onEvent(event) {
+              events.push(event.type);
+            },
+          },
+        }),
+      ).rejects.toMatchObject({
+        code: "invalid_audience",
+      });
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          "jwks.refreshed",
+          "token.verified",
+          "token.verification_failed",
+        ]),
+      );
+    } finally {
+      await issuer.close();
+    }
+  });
+
   it("derives the standard JWKS path from the issuer", () => {
     expect(deriveJwksUrl("https://auth.internal")).toBe(
       "https://auth.internal/.well-known/jwks.json",
@@ -209,9 +257,11 @@ function createTestIssuerStorage() {
     createClient: async () => {},
     deleteClient: async () => {},
     listClients: async () => [],
+    updateClient: async () => {},
     touchClient: async () => {},
     setClientActive: async () => {},
     setTokensInvalidBefore: async () => {},
+    findClientBySecret: async () => null,
     getSigningKeys: async () => [],
     addSigningKey: async () => {},
     setSigningKeyNotAfter: async () => {},

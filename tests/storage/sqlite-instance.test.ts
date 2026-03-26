@@ -46,7 +46,8 @@ describe("sqliteStorage(database)", () => {
 
       expect(clients).toHaveLength(1);
       expect(clients[0]?.clientId).toBe(created.clientId);
-      expect(clients[0]?.clientSecret).not.toBe(created.clientSecret);
+      expect(clients[0]).not.toHaveProperty("currentSecretHash");
+      expect(clients[0]).not.toHaveProperty("nextSecretHash");
     } finally {
       database.close();
     }

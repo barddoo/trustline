@@ -19,6 +19,51 @@ import type {
   StorageAdapter,
 } from "../storage/interface";
 
+export interface ProviderClient {
+  id: string;
+  clientId: string;
+  name: string;
+  scopes: string[];
+  createdAt: Date;
+  updatedAt: Date;
+  lastSeenAt: Date | null;
+  currentSecretCreatedAt: Date;
+  currentSecretLastUsedAt: Date | null;
+  nextSecretCreatedAt: Date | null;
+  nextSecretExpiresAt: Date | null;
+  nextSecretLastUsedAt: Date | null;
+  secretLastRotatedAt: Date | null;
+  active: boolean;
+  tokensInvalidBefore: Date | null;
+  hasPendingSecretRotation: boolean;
+}
+
+export interface ProviderEventBase {
+  type:
+    | "client.created"
+    | "client.renamed"
+    | "client.scopes_updated"
+    | "client.activated"
+    | "client.deactivated"
+    | "client.secret_rotated"
+    | "token.issued"
+    | "token.issuance_failed";
+  timestamp: Date;
+  issuer: string;
+  outcome: "success" | "failure";
+  clientId?: string;
+  audience?: string;
+  reasonCode?: string;
+}
+
+export interface ProviderEvent extends ProviderEventBase {
+  metadata?: Record<string, unknown>;
+}
+
+export interface ProviderHooks {
+  onEvent?(event: ProviderEvent): void | Promise<void>;
+}
+
 export interface ProviderOptions {
   issuer: string;
   storage: StorageAdapter;
@@ -30,6 +75,7 @@ export interface ProviderOptions {
   token?: {
     ttl?: number;
   };
+  hooks?: ProviderHooks;
   env?: string;
 }
 
@@ -51,11 +97,29 @@ export interface RotateSigningKeyInput {
   privateKey?: string;
 }
 
+export interface RotateClientSecretInput {
+  expiresAt?: Date;
+  overlapSeconds?: number;
+}
+
+export interface RotatedProviderClientSecret {
+  clientId: string;
+  clientSecret: string;
+  expiresAt: Date | null;
+}
+
 export interface Provider {
   handle(request: Request): Promise<Response>;
   clients: {
     create(input: CreateProviderClientInput): Promise<CreatedProviderClient>;
-    list(): Promise<ServiceClient[]>;
+    list(): Promise<ProviderClient[]>;
+    get(clientId: string): Promise<ProviderClient | null>;
+    rename(clientId: string, name: string): Promise<void>;
+    updateScopes(clientId: string, scopes: string[]): Promise<void>;
+    rotateSecret(
+      clientId: string,
+      input?: RotateClientSecretInput,
+    ): Promise<RotatedProviderClientSecret>;
     revoke(clientId: string): Promise<void>;
     disable(clientId: string): Promise<void>;
     enable(clientId: string): Promise<void>;
@@ -71,6 +135,7 @@ export interface Provider {
 }
 
 const DEFAULT_TOKEN_TTL_SECONDS = 300;
+const DEFAULT_SECRET_ROTATION_OVERLAP_SECONDS = 3600;
 const JWKS_CACHE_CONTROL_HEADER = "public, max-age=600";
 
 export function createProvider(options: ProviderOptions): Provider {
@@ -86,6 +151,18 @@ export function createProvider(options: ProviderOptions): Provider {
       },
       list() {
         return provider.listClients();
+      },
+      get(clientId) {
+        return provider.getClient(clientId);
+      },
+      rename(clientId, name) {
+        return provider.renameClient(clientId, name);
+      },
+      updateScopes(clientId, scopes) {
+        return provider.updateClientScopes(clientId, scopes);
+      },
+      rotateSecret(clientId, input) {
+        return provider.rotateClientSecret(clientId, input);
       },
       revoke(clientId) {
         return provider.revokeClient(clientId);
@@ -143,19 +220,38 @@ class TrustlineProvider {
     input: CreateProviderClientInput,
   ): Promise<CreatedProviderClient> {
     const clientSecret = generateSecret();
+    const now = new Date();
     const client: ServiceClient = {
       id: v7(),
       clientId: `svc_${v7().replaceAll("-", "")}`,
-      clientSecret: await hashSecret(clientSecret),
       name: input.name,
       scopes: parseScopes(input.scopes?.join(" ")),
-      createdAt: new Date(),
+      createdAt: now,
+      updatedAt: now,
       lastSeenAt: null,
+      currentSecretHash: await hashSecret(clientSecret),
+      currentSecretCreatedAt: now,
+      currentSecretLastUsedAt: null,
+      nextSecretHash: null,
+      nextSecretCreatedAt: null,
+      nextSecretExpiresAt: null,
+      nextSecretLastUsedAt: null,
+      secretLastRotatedAt: null,
       active: true,
       tokensInvalidBefore: null,
     };
 
     await this.options.storage.createClient(client);
+    await this.emitEvent({
+      type: "client.created",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId: client.clientId,
+      metadata: {
+        scopeCount: client.scopes.length,
+      },
+    });
 
     return {
       clientId: client.clientId,
@@ -163,24 +259,171 @@ class TrustlineProvider {
     };
   }
 
-  listClients(): Promise<ServiceClient[]> {
-    return this.options.storage.listClients();
+  async listClients(): Promise<ProviderClient[]> {
+    const clients = await this.options.storage.listClients();
+    const normalized = await Promise.all(
+      clients.map((client) => this.normalizeClient(client)),
+    );
+    return normalized.map((client) => toProviderClient(client));
+  }
+
+  async getClient(clientId: string): Promise<ProviderClient | null> {
+    const client = await this.options.storage.findClient(clientId);
+    if (!client) {
+      return null;
+    }
+
+    return toProviderClient(await this.normalizeClient(client));
+  }
+
+  async renameClient(clientId: string, name: string): Promise<void> {
+    const client = await this.requireClient(clientId);
+    const now = new Date();
+
+    await this.options.storage.updateClient(clientId, {
+      name,
+      updatedAt: now,
+    });
+
+    await this.emitEvent({
+      type: "client.renamed",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId,
+      metadata: {
+        previousName: client.name,
+        name,
+      },
+    });
+  }
+
+  async updateClientScopes(clientId: string, scopes: string[]): Promise<void> {
+    await this.requireClient(clientId);
+    const normalizedScopes = parseScopes(scopes.join(" "));
+    const now = new Date();
+
+    await this.options.storage.updateClient(clientId, {
+      scopes: normalizedScopes,
+      updatedAt: now,
+    });
+
+    await this.emitEvent({
+      type: "client.scopes_updated",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId,
+      metadata: {
+        scopes: normalizedScopes,
+      },
+    });
+  }
+
+  async rotateClientSecret(
+    clientId: string,
+    input: RotateClientSecretInput = {},
+  ): Promise<RotatedProviderClientSecret> {
+    const client = await this.requireClient(clientId);
+    const normalized = await this.normalizeClient(client);
+    const now = new Date();
+    const secret = generateSecret();
+    const secretHash = await hashSecret(secret);
+    const expiresAt =
+      input.expiresAt ??
+      (input.overlapSeconds === 0
+        ? null
+        : new Date(
+            now.getTime() +
+              (input.overlapSeconds ??
+                DEFAULT_SECRET_ROTATION_OVERLAP_SECONDS) *
+                1000,
+          ));
+
+    if (expiresAt && expiresAt.getTime() <= now.getTime()) {
+      throw new Error("Secret rotation expiry must be in the future");
+    }
+
+    if (expiresAt === null) {
+      await this.options.storage.updateClient(clientId, {
+        currentSecretHash: secretHash,
+        currentSecretCreatedAt: now,
+        currentSecretLastUsedAt: null,
+        nextSecretHash: null,
+        nextSecretCreatedAt: null,
+        nextSecretExpiresAt: null,
+        nextSecretLastUsedAt: null,
+        secretLastRotatedAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await this.options.storage.updateClient(clientId, {
+        currentSecretHash: normalized.currentSecretHash,
+        nextSecretHash: secretHash,
+        nextSecretCreatedAt: now,
+        nextSecretExpiresAt: expiresAt,
+        nextSecretLastUsedAt: null,
+        secretLastRotatedAt: now,
+        updatedAt: now,
+      });
+    }
+
+    await this.emitEvent({
+      type: "client.secret_rotated",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId,
+      metadata: {
+        expiresAt: expiresAt?.toISOString() ?? null,
+      },
+    });
+
+    return {
+      clientId,
+      clientSecret: secret,
+      expiresAt,
+    };
   }
 
   revokeClient(clientId: string): Promise<void> {
     return this.options.storage.deleteClient(clientId);
   }
 
-  setClientActive(clientId: string, active: boolean): Promise<void> {
-    return this.options.storage.setClientActive(clientId, active);
+  async setClientActive(clientId: string, active: boolean): Promise<void> {
+    await this.requireClient(clientId);
+    const now = new Date();
+    await this.options.storage.updateClient(clientId, {
+      active,
+      updatedAt: now,
+    });
+
+    await this.emitEvent({
+      type: active ? "client.activated" : "client.deactivated",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId,
+    });
   }
 
-  invalidateTokensBefore(clientId: string, at = new Date()): Promise<void> {
-    return this.options.storage.setTokensInvalidBefore(clientId, at);
+  async invalidateTokensBefore(
+    clientId: string,
+    at = new Date(),
+  ): Promise<void> {
+    await this.requireClient(clientId);
+    await this.options.storage.updateClient(clientId, {
+      tokensInvalidBefore: at,
+      updatedAt: new Date(),
+    });
   }
 
-  clearTokensInvalidBefore(clientId: string): Promise<void> {
-    return this.options.storage.setTokensInvalidBefore(clientId, null);
+  async clearTokensInvalidBefore(clientId: string): Promise<void> {
+    await this.requireClient(clientId);
+    await this.options.storage.updateClient(clientId, {
+      tokensInvalidBefore: null,
+      updatedAt: new Date(),
+    });
   }
 
   revokeToken(token: RevokedToken): Promise<void> {
@@ -197,11 +440,9 @@ class TrustlineProvider {
   private async handleToken(request: Request): Promise<Response> {
     const contentType = request.headers.get("content-type") ?? "";
     if (!contentType.includes("application/x-www-form-urlencoded")) {
-      return jsonResponse(
-        {
-          error: "invalid_request",
-          error_description: "Expected application/x-www-form-urlencoded body",
-        },
+      return this.tokenError(
+        "invalid_request",
+        "Expected application/x-www-form-urlencoded body",
         400,
       );
     }
@@ -210,11 +451,9 @@ class TrustlineProvider {
     const grantType = body.get("grant_type");
 
     if (grantType !== "client_credentials") {
-      return jsonResponse(
-        {
-          error: "unsupported_grant_type",
-          error_description: "Only client_credentials is supported",
-        },
+      return this.tokenError(
+        "unsupported_grant_type",
+        "Only client_credentials is supported",
         400,
       );
     }
@@ -227,60 +466,85 @@ class TrustlineProvider {
     };
 
     if (!credentials.clientId || !credentials.clientSecret) {
-      return jsonResponse(
-        {
-          error: "invalid_client",
-          error_description: "Missing client credentials",
-        },
+      return this.tokenError(
+        "invalid_client",
+        "Missing client credentials",
         401,
       );
     }
 
     const client = await this.options.storage.findClient(credentials.clientId);
-    if (
-      !client ||
-      !(await verifySecret(credentials.clientSecret, client.clientSecret))
-    ) {
-      return jsonResponse(
-        {
-          error: "invalid_client",
-          error_description: "Client authentication failed",
-        },
+    if (!client) {
+      return this.tokenError(
+        "invalid_client",
+        "Client authentication failed",
         401,
+        {
+          clientId: credentials.clientId ?? undefined,
+        },
       );
     }
 
-    if (!client.active) {
-      return jsonResponse(
-        {
-          error: "invalid_client",
-          error_description: "Client is inactive",
-        },
+    const normalizedClient = await this.normalizeClient(client);
+    const matchedSecret = await this.verifyClientSecret(
+      normalizedClient,
+      credentials.clientSecret,
+    );
+    if (!matchedSecret) {
+      return this.tokenError(
+        "invalid_client",
+        "Client authentication failed",
         401,
+        {
+          clientId: normalizedClient.clientId,
+        },
       );
+    }
+
+    if (!normalizedClient.active) {
+      return this.tokenError("invalid_client", "Client is inactive", 401, {
+        clientId: normalizedClient.clientId,
+      });
     }
 
     const grantedScopes = resolveGrantedScopes(
       body.get("scope"),
-      client.scopes,
+      normalizedClient.scopes,
     );
     if (!grantedScopes) {
-      return jsonResponse(
-        {
-          error: "invalid_scope",
-          error_description: "Requested scope exceeds client permissions",
-        },
+      return this.tokenError(
+        "invalid_scope",
+        "Requested scope exceeds client permissions",
         400,
+        {
+          clientId: normalizedClient.clientId,
+          metadata: {
+            requestedScopes: parseScopes(body.get("scope") ?? ""),
+          },
+        },
       );
     }
 
+    const now = new Date();
+    await this.recordClientUsage(normalizedClient, matchedSecret, now);
+
     const token = await this.issueAccessToken({
       audience: body.get("audience") ?? undefined,
-      client,
+      client: normalizedClient,
       scopes: grantedScopes,
     });
 
-    await this.options.storage.touchClient(client.clientId, new Date());
+    await this.emitEvent({
+      type: "token.issued",
+      timestamp: now,
+      issuer: this.options.issuer,
+      outcome: "success",
+      clientId: normalizedClient.clientId,
+      audience: body.get("audience") ?? undefined,
+      metadata: {
+        grantedScopes,
+      },
+    });
 
     return jsonResponse({
       access_token: token,
@@ -377,6 +641,152 @@ class TrustlineProvider {
 
     return { keyId: next.keyId };
   }
+
+  private async normalizeClient(client: ServiceClient): Promise<ServiceClient> {
+    if (
+      !client.nextSecretHash ||
+      !client.nextSecretExpiresAt ||
+      client.nextSecretExpiresAt.getTime() > Date.now()
+    ) {
+      return client;
+    }
+
+    const promoted: ServiceClient = {
+      ...client,
+      currentSecretHash: client.nextSecretHash,
+      currentSecretCreatedAt: client.nextSecretCreatedAt ?? new Date(),
+      currentSecretLastUsedAt: client.nextSecretLastUsedAt,
+      nextSecretHash: null,
+      nextSecretCreatedAt: null,
+      nextSecretExpiresAt: null,
+      nextSecretLastUsedAt: null,
+      updatedAt: new Date(),
+    };
+
+    await this.options.storage.updateClient(client.clientId, {
+      currentSecretHash: promoted.currentSecretHash,
+      currentSecretCreatedAt: promoted.currentSecretCreatedAt,
+      currentSecretLastUsedAt: promoted.currentSecretLastUsedAt,
+      nextSecretHash: null,
+      nextSecretCreatedAt: null,
+      nextSecretExpiresAt: null,
+      nextSecretLastUsedAt: null,
+      updatedAt: promoted.updatedAt,
+    });
+
+    return promoted;
+  }
+
+  private async verifyClientSecret(
+    client: ServiceClient,
+    providedSecret: string,
+  ): Promise<"current" | "next" | null> {
+    if (await verifySecret(providedSecret, client.currentSecretHash)) {
+      return "current";
+    }
+
+    if (
+      client.nextSecretHash &&
+      client.nextSecretExpiresAt &&
+      client.nextSecretExpiresAt.getTime() > Date.now() &&
+      (await verifySecret(providedSecret, client.nextSecretHash))
+    ) {
+      return "next";
+    }
+
+    return null;
+  }
+
+  private async recordClientUsage(
+    client: ServiceClient,
+    secretKind: "current" | "next",
+    at: Date,
+  ): Promise<void> {
+    await this.options.storage.updateClient(client.clientId, {
+      lastSeenAt: at,
+      updatedAt: at,
+      ...(secretKind === "current"
+        ? { currentSecretLastUsedAt: at }
+        : { nextSecretLastUsedAt: at }),
+    });
+  }
+
+  private async requireClient(clientId: string): Promise<ServiceClient> {
+    const client = await this.options.storage.findClient(clientId);
+    if (!client) {
+      throw new Error(`Unknown client: ${clientId}`);
+    }
+
+    return this.normalizeClient(client);
+  }
+
+  private async tokenError(
+    code: string,
+    description: string,
+    status: number,
+    event?: Omit<ProviderEvent, "type" | "timestamp" | "issuer" | "outcome">,
+  ): Promise<Response> {
+    await this.emitEvent({
+      type: "token.issuance_failed",
+      timestamp: new Date(),
+      issuer: this.options.issuer,
+      outcome: "failure",
+      reasonCode: code,
+      ...event,
+    });
+
+    return jsonResponse(
+      {
+        error: code,
+        error_description: description,
+      },
+      status,
+    );
+  }
+
+  private async emitEvent(event: ProviderEvent): Promise<void> {
+    try {
+      await this.options.hooks?.onEvent?.(event);
+    } catch {
+      // Hooks are observational and must not break auth flows.
+    }
+  }
+}
+
+function toProviderClient(client: ServiceClient): ProviderClient {
+  return {
+    id: client.id,
+    clientId: client.clientId,
+    name: client.name,
+    scopes: [...client.scopes],
+    createdAt: new Date(client.createdAt),
+    updatedAt: new Date(client.updatedAt),
+    lastSeenAt: client.lastSeenAt ? new Date(client.lastSeenAt) : null,
+    currentSecretCreatedAt: new Date(client.currentSecretCreatedAt),
+    currentSecretLastUsedAt: client.currentSecretLastUsedAt
+      ? new Date(client.currentSecretLastUsedAt)
+      : null,
+    nextSecretCreatedAt: client.nextSecretCreatedAt
+      ? new Date(client.nextSecretCreatedAt)
+      : null,
+    nextSecretExpiresAt: client.nextSecretExpiresAt
+      ? new Date(client.nextSecretExpiresAt)
+      : null,
+    nextSecretLastUsedAt: client.nextSecretLastUsedAt
+      ? new Date(client.nextSecretLastUsedAt)
+      : null,
+    secretLastRotatedAt: client.secretLastRotatedAt
+      ? new Date(client.secretLastRotatedAt)
+      : null,
+    active: client.active,
+    tokensInvalidBefore: client.tokensInvalidBefore
+      ? new Date(client.tokensInvalidBefore)
+      : null,
+    hasPendingSecretRotation:
+      client.nextSecretHash !== null &&
+      client.nextSecretExpiresAt !== null &&
+      client.nextSecretExpiresAt.getTime() > Date.now(),
+  };
 }
 
 function jsonResponse(
@@ -423,18 +833,17 @@ function resolveGrantedScopes(
   requestedScope: string | null,
   allowedScopes: string[],
 ): string[] | null {
-  if (!requestedScope) {
-    return [...allowedScopes];
+  const requested = parseScopes(requestedScope ?? "");
+  if (requested.length === 0) {
+    return allowedScopes;
   }
 
-  const requestedScopes = parseScopes(requestedScope);
-  const allowedScopeSet = new Set(allowedScopes);
-
-  for (const scope of requestedScopes) {
-    if (!allowedScopeSet.has(scope)) {
+  const allowed = new Set(allowedScopes);
+  for (const scope of requested) {
+    if (!allowed.has(scope)) {
       return null;
     }
   }
 
-  return requestedScopes;
+  return requested;
 }

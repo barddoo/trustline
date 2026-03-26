@@ -54,11 +54,20 @@ npm install trustline better-sqlite3 kysely
 
 If you are working from this repository before package publication, build the package locally and link or install it from the repo source in your application.
 
-## Minimal full-stack setup
+## Minimal two-service interaction
+
+This is the smallest realistic shape of a service-to-service call:
+
+- an auth provider issues credentials for the caller service
+- the caller service gets a token for the receiver service
+- the receiver service verifies that token locally
+
+### Auth provider
 
 ```ts
-import { createProvider, createGuard, memoryStorage } from "trustline";
-import { createClient } from "trustline/client";
+import { Hono } from "hono";
+import { createProvider, memoryStorage } from "trustline";
+import { createHonoProvider } from "trustline/frameworks/hono";
 
 const provider = createProvider({
   issuer: "https://auth.internal",
@@ -66,28 +75,73 @@ const provider = createProvider({
   env: "production",
 });
 
-const service = await provider.clients.create({
-  name: "order-processor",
-  scopes: ["read:orders"],
+const ordersApiCredentials = await provider.clients.create({
+  name: "orders-api",
+  scopes: ["read:inventory"],
 });
 
-const client = createClient({
+const app = new Hono();
+
+app.route("/", createHonoProvider(provider));
+```
+
+The provider returns `ordersApiCredentials.clientId` and `ordersApiCredentials.clientSecret` once. Store those values in the caller service's environment or secret manager.
+
+### Caller service: `orders-api`
+
+```ts
+import { Hono } from "hono";
+import { createClient } from "trustline/client";
+
+const ordersClient = createClient({
   tokenUrl: "https://auth.internal/token",
-  clientId: service.clientId,
-  clientSecret: service.clientSecret,
+  clientId: process.env.TRUSTLINE_CLIENT_ID!,
+  clientSecret: process.env.TRUSTLINE_CLIENT_SECRET!,
   audience: "inventory-service",
 });
 
-const guard = createGuard({
+const app = new Hono();
+
+app.get("/shipments", async (context) => {
+  const token = await ordersClient.getToken();
+  const response = await fetch("https://inventory.internal/items", {
+    headers: {
+      authorization: `Bearer ${token}`,
+    },
+  });
+
+  return context.json(await response.json());
+});
+```
+
+### Receiver service: `inventory-service`
+
+```ts
+import { Hono } from "hono";
+import { createGuard } from "trustline";
+import { createHonoGuard } from "trustline/frameworks/hono";
+
+const inventoryGuard = createGuard({
   issuer: "https://auth.internal",
   audience: "inventory-service",
-  scopes: ["read:orders"],
+  scopes: ["read:inventory"],
   env: "production",
 });
 
-const token = await client.getToken();
-const identity = await guard.verify(token);
+const app = new Hono();
+
+app.use("*", createHonoGuard(inventoryGuard));
+
+app.get("/items", async (context) => {
+  return context.json({
+    service: "inventory-service",
+    caller: context.get("trustline")?.name ?? context.get("trustline")?.clientId,
+    scopes: context.get("trustline")?.scopes ?? [],
+  });
+});
 ```
+
+In a real deployment, the provider runs as its own service, the caller stores `clientId` and `clientSecret` in its secret manager or environment, and the receiver only needs the issuer and verification rules.
 
 ## Guard-only verification
 

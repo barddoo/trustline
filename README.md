@@ -184,6 +184,9 @@ interface ProviderOptions {
   token?: {
     ttl?: number;
   };
+  hooks?: {
+    onEvent?(event: ProviderEvent): void | Promise<void>;
+  };
   env?: string;
 }
 
@@ -194,6 +197,9 @@ interface GuardOptions {
   scopes?: string[];
   env?: string;
   clockTolerance?: number;
+  hooks?: {
+    onEvent?(event: GuardEvent): void | Promise<void>;
+  };
 }
 
 interface ServiceIdentity {
@@ -203,12 +209,23 @@ interface ServiceIdentity {
   env: string | null;
   raw: Record<string, unknown>;
 }
+
+interface ProviderClient {
+  clientId: string;
+  name: string;
+  scopes: string[];
+  active: boolean;
+  lastSeenAt: Date | null;
+  secretLastRotatedAt: Date | null;
+  nextSecretExpiresAt: Date | null;
+  hasPendingSecretRotation: boolean;
+}
 ```
 
 Adapter surface:
 
 - `provider.handle(request)`
-- `provider.clients.create/list/revoke/disable/enable/invalidateTokensBefore/clearTokensInvalidBefore`
+- `provider.clients.create/list/get/rename/updateScopes/rotateSecret/revoke/disable/enable/invalidateTokensBefore/clearTokensInvalidBefore`
 - `provider.keys.rotate`
 - `provider.tokens.revoke`
 - `guard.verify(token)`
@@ -247,6 +264,10 @@ const postgres = postgresStorage(
 );
 const mysql = mysqlStorage(createMysqlPool(process.env.DATABASE_URL!));
 ```
+
+`trustline/client` now accepts an optional async token cache interface for sharing access tokens across instances while keeping the default in-memory cache behavior.
+
+Client secrets are only returned by `provider.clients.create()` and `provider.clients.rotateSecret()`. `provider.clients.get()` and `provider.clients.list()` return `ProviderClient` metadata and never expose hashed secrets.
 
 ## Development
 

@@ -20,6 +20,11 @@ export interface JwksCacheOptions {
   ttlMs?: number;
 }
 
+export interface JwksCacheResult {
+  jwkSet: JWTVerifyGetKey;
+  refreshed: boolean;
+}
+
 export class JwksCache {
   private readonly ttlMs: number;
   private readonly entries = new Map<string, CacheEntry>();
@@ -29,18 +34,24 @@ export class JwksCache {
     this.ttlMs = options.ttlMs ?? 10 * 60 * 1000;
   }
 
-  async get(url: string, forceRefresh = false): Promise<JWTVerifyGetKey> {
+  async get(url: string, forceRefresh = false): Promise<JwksCacheResult> {
     const now = Date.now();
     const cached = this.entries.get(url);
 
     if (!forceRefresh && cached && cached.expiresAt > now) {
-      return cached.jwkSet;
+      return {
+        jwkSet: cached.jwkSet,
+        refreshed: false,
+      };
     }
 
     const inflight = this.inflight.get(url);
     if (inflight) {
       const entry = await inflight.promise;
-      return entry.jwkSet;
+      return {
+        jwkSet: entry.jwkSet,
+        refreshed: true,
+      };
     }
 
     const promise = this.fetchAndCache(url);
@@ -48,7 +59,10 @@ export class JwksCache {
 
     try {
       const entry = await promise;
-      return entry.jwkSet;
+      return {
+        jwkSet: entry.jwkSet,
+        refreshed: true,
+      };
     } finally {
       this.inflight.delete(url);
     }

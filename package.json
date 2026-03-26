@@ -111,6 +111,7 @@
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "citty": "^0.2.1",
     "jose": "^6.1.0",
     "uuid": "^13.0.0"
   },
