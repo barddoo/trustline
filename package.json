@@ -16,6 +16,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.cjs"
+    },
     "./middleware": {
       "types": "./dist/middleware/index.d.ts",
       "import": "./dist/middleware/index.js",
@@ -28,7 +33,7 @@
     "check": "biome check .",
     "format": "biome check --write .",
     "lint": "biome lint .",
-    "test": "vitest run",
+    "test": "bunx vitest run",
     "typecheck": "tsc --noEmit"
   },
   "repository": {
@@ -36,17 +41,25 @@
     "url": "https://github.com/barddoo/trustline"
   },
   "peerDependencies": {
-    "express": "^4.21.0 || ^5.0.0"
+    "express": "^4.21.0 || ^5.0.0",
+    "fastify": "^5.0.0",
+    "hono": "^4.0.0"
   },
   "dependencies": {
-    "jose": "^6.1.0"
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.8.0",
+    "jose": "^6.1.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.9",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.1",
     "@types/node": "^24.5.2",
     "@types/supertest": "^6.0.3",
     "express": "^5.1.0",
+    "fastify": "^5.8.4",
+    "hono": "^4.12.9",
     "supertest": "^7.1.4",
     "tsup": "^8.5.0",
     "typescript": "6.0.2",

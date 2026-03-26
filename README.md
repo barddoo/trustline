@@ -4,35 +4,36 @@ Service identity and authorization for Node.js.
 
 Trustline is a machine-to-machine authentication library for internal services. It is designed around three independent entry points:
 
-- `trustline`: provider and shared exports
+- `trustline`: provider, storage, and shared exports
 - `trustline/client`: token fetching and caching for outgoing requests
 - `trustline/middleware`: token verification for receiving services
 
-The current implementation focuses on the middleware and guard slice. You can use it today to verify JWTs from a standards-compliant issuer such as Keycloak or Auth0.
+The package now ships the first full stack: provider, client, guard, memory storage, and SQLite storage.
 
 ## Current status
 
 Available now:
 
+- `createProvider(options)`
+- `createClient(options)`
 - `createGuard(options)`
-- `guard.verify(token)`
-- `guard.express()`
+- `memoryStorage()`
+- `sqliteStorage(path)`
 
-Implemented verification behavior:
+Implemented behavior:
 
-- issuer validation
-- optional audience enforcement
-- optional scope enforcement
-- optional environment enforcement
-- JWKS discovery from the issuer URL
-- in-memory JWKS caching with one refresh retry on key mismatch
+- client credentials token issuance
+- JWKS publishing
+- token caching with proactive refresh and request deduplication
+- issuer, audience, scope, and environment verification
+- JWKS discovery and caching
+- Express, Fastify, and Hono adapters
 
 Planned next:
 
-- provider
-- client
-- storage adapters
-- key rotation workflows
+- key rotation overlap windows
+- token revocation workflows
+- requested-scope narrowing during issuance
 
 ## Installation
 
@@ -52,19 +53,39 @@ If you are working from this repository before package publication, build the pa
 
 ## Quick start
 
-Minimal verification:
+Provider:
 
 ```ts
-import { createGuard } from "trustline";
+import { createProvider, memoryStorage } from "trustline";
 
-const guard = createGuard({
+const provider = createProvider({
   issuer: "https://auth.internal",
+  storage: memoryStorage(),
+  env: "production",
 });
 
-const identity = await guard.verify(token);
+const service = await provider.clients.create({
+  name: "order-processor",
+  scopes: ["read:orders", "write:inventory"],
+});
 ```
 
-Recommended verification:
+Client:
+
+```ts
+import { createClient } from "trustline/client";
+
+const client = createClient({
+  tokenUrl: "https://auth.internal/token",
+  clientId: service.clientId,
+  clientSecret: service.clientSecret,
+  audience: "inventory-service",
+});
+
+const token = await client.getToken();
+```
+
+Guard:
 
 ```ts
 import { createGuard } from "trustline";
@@ -79,25 +100,73 @@ const guard = createGuard({
 const identity = await guard.verify(token);
 ```
 
-Trustline derives the JWKS endpoint automatically:
+Trustline derives the JWKS endpoint automatically for verification:
 
 ```txt
 issuer: https://auth.internal
 jwks:   https://auth.internal/.well-known/jwks.json
 ```
 
-## Express
+## Bun
+
+Trustline does not need a Bun-specific adapter. Bun already uses the standard Web `Request` and `Response` APIs, so use the provider's `handle()` method directly and call `guard.verify()` inside your `fetch` handler.
 
 ```ts
-import express from "express";
-import { createGuard, type TrustlineRequest } from "trustline/middleware";
+import { createGuard, createProvider, memoryStorage } from "trustline";
 
-const app = express();
+const provider = createProvider({
+  issuer: "https://auth.internal",
+  storage: memoryStorage(),
+});
+
+Bun.serve({
+  port: 3000,
+  fetch: provider.handle,
+});
+
 const guard = createGuard({
   issuer: "https://auth.internal",
   audience: "inventory-service",
 });
 
+Bun.serve({
+  port: 4000,
+  fetch: async (request) => {
+    const header = request.headers.get("authorization");
+    const token = header?.replace(/^Bearer\s+/, "") ?? "";
+    const identity = await guard.verify(token);
+
+    return Response.json({
+      caller: identity.name ?? identity.clientId,
+    });
+  },
+});
+```
+
+## Express
+
+```ts
+import express from "express";
+import {
+  createProvider,
+  createGuard,
+  memoryStorage,
+  type TrustlineRequest,
+} from "trustline";
+
+const app = express();
+
+const provider = createProvider({
+  issuer: "https://auth.internal",
+  storage: memoryStorage(),
+});
+
+const guard = createGuard({
+  issuer: "https://auth.internal",
+  audience: "inventory-service",
+});
+
+app.use(provider.express());
 app.use(guard.express());
 
 app.get("/internal", (request: TrustlineRequest, response) => {
@@ -107,18 +176,25 @@ app.get("/internal", (request: TrustlineRequest, response) => {
 });
 ```
 
-The Express adapter:
-
-- reads `Authorization: Bearer <token>`
-- verifies the token locally
-- attaches `request.trustline`
-- returns JSON auth errors on failure
-
 ## API
 
-Current public API:
+Current public API includes:
 
 ```ts
+interface ProviderOptions {
+  issuer: string;
+  storage: StorageAdapter;
+  signing?: {
+    algorithm?: "ES256" | "RS256";
+    privateKey?: string;
+    keyId?: string;
+  };
+  token?: {
+    ttl?: number;
+  };
+  env?: string;
+}
+
 interface GuardOptions {
   issuer: string;
   jwksUrl?: string;
@@ -137,10 +213,26 @@ interface ServiceIdentity {
 }
 ```
 
+Adapter surface:
+
+- `provider.handle(request)`
+- `provider.express()`
+- `provider.fastify()`
+- `provider.hono()`
+- `guard.verify(token)`
+- `guard.express()`
+- `guard.fastify()`
+- `guard.hono()`
+
 Supported signing algorithms:
 
 - `RS256`
 - `ES256`
+
+Bundled storage adapters:
+
+- `memoryStorage()`
+- `sqliteStorage(path)`
 
 ## Documentation
 
