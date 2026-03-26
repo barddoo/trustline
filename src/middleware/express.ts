@@ -1,17 +1,17 @@
 import type { Request, RequestHandler, Response } from "express";
 
 import { AuthError } from "../core/errors";
-import {
-  type GuardOptions,
-  type ServiceIdentity,
-  verifyToken,
-} from "../core/token";
+import type { ServiceIdentity } from "../core/token";
+
+export interface GuardVerifier {
+  verify(token: string): Promise<ServiceIdentity>;
+}
 
 export interface TrustlineRequest extends Request {
   trustline?: ServiceIdentity;
 }
 
-export function createExpressGuard(options: GuardOptions): RequestHandler {
+export function createExpressGuard(guard: GuardVerifier): RequestHandler {
   return async function trustlineGuard(
     request: Request,
     response: Response,
@@ -28,7 +28,7 @@ export function createExpressGuard(options: GuardOptions): RequestHandler {
     }
 
     try {
-      const identity = await verifyToken(token, options);
+      const identity = await guard.verify(token);
       (request as TrustlineRequest).trustline = identity;
       next();
     } catch (error) {

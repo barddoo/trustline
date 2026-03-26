@@ -1,6 +1,6 @@
 # Get Started
 
-Trustline is a service identity library for machine-to-machine authentication. The current package ships a provider, a client, and middleware, so you can run the full flow or adopt each piece independently.
+Trustline is a service identity library for machine-to-machine authentication. The current package ships a provider, a client, a guard, and dedicated integration entry points, so you can run the full flow or adopt each piece independently.
 
 ## What you can use today
 
@@ -14,9 +14,12 @@ Today Trustline ships:
 - `client.fetch()`
 - `createGuard(options)`
 - `guard.verify(token)`
-- `guard.express()`
-- `guard.fastify()`
-- `guard.hono()`
+- `createExpressProvider(provider)`
+- `createExpressGuard(guard)`
+- `createFastifyProvider(provider)`
+- `createFastifyGuard(guard)`
+- `createHonoProvider(provider)`
+- `createHonoGuard(guard)`
 - `memoryStorage()`
 - `sqliteStorage(path | database)`
 - `postgresStorage(pool)`
@@ -32,11 +35,19 @@ Trustline is intended to be consumed as the `trustline` package, and the example
 import { createProvider, createGuard, memoryStorage } from "trustline";
 ```
 
-You can also import from the dedicated client and middleware entry points:
+You can also import from the dedicated client, framework, and adapter entry points:
 
 ```ts
 import { createClient } from "trustline/client";
-import { createGuard } from "trustline/middleware";
+import { createExpressGuard } from "trustline/frameworks/express";
+import { sqliteStorage } from "trustline/adapters/sqlite";
+```
+
+Install only the integrations you use. Example:
+
+```bash
+npm install trustline express
+npm install trustline better-sqlite3 kysely
 ```
 
 If you are working from this repository before package publication, build the package locally and link or install it from the repo source in your application.
@@ -137,13 +148,13 @@ Bun.serve({
 
 ```ts
 import express from "express";
-import {
-  createProvider,
-  createGuard,
-  memoryStorage,
-  type TrustlineRequest,
-} from "trustline";
+import { createGuard, createProvider, memoryStorage } from "trustline";
 import { createClient } from "trustline/client";
+import {
+  createExpressGuard,
+  createExpressProvider,
+  type TrustlineRequest,
+} from "trustline/frameworks/express";
 
 const app = express();
 
@@ -170,8 +181,8 @@ const guard = createGuard({
   scopes: ["read:orders"],
 });
 
-app.use(provider.express());
-app.use(guard.express());
+app.use(createExpressProvider(provider));
+app.use(createExpressGuard(guard));
 
 app.get("/orders", async (request: TrustlineRequest, response) => {
   const token = await client.getToken();

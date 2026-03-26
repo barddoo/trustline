@@ -1,3 +1,4 @@
+import { createGuard as createCoreGuard } from "../guard/index";
 import type { RequestHandler } from "express";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { MiddlewareHandler } from "hono";
@@ -5,7 +6,6 @@ import type { MiddlewareHandler } from "hono";
 import {
   type GuardOptions,
   type ServiceIdentity,
-  verifyToken,
 } from "../core/token";
 import { createExpressGuard } from "./express";
 import { createFastifyGuard } from "./fastify";
@@ -23,12 +23,14 @@ export interface Guard {
 }
 
 export function createGuard(options: GuardOptions): Guard {
+  const guard = createCoreGuard(options);
+
   return {
     verify(token: string) {
-      return verifyToken(token, options);
+      return guard.verify(token);
     },
     express() {
-      return createExpressGuard(options);
+      return createExpressGuard(guard);
     },
     fastify() {
       return createFastifyGuard(options);

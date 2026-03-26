@@ -2,10 +2,8 @@ export type {
   Guard,
   GuardOptions,
   ServiceIdentity,
-  TrustlineFastifyRequest,
-  TrustlineRequest,
-} from "./middleware/index";
-export { createGuard } from "./middleware/index";
+} from "./guard/index";
+export { createGuard } from "./guard/index";
 export type {
   CreatedProviderClient,
   CreateProviderClientInput,
@@ -20,6 +18,3 @@ export type {
   StorageAdapter,
 } from "./storage/interface";
 export { memoryStorage } from "./storage/memory";
-export { mysqlStorage } from "./storage/mysql";
-export { postgresStorage } from "./storage/postgres";
-export { sqliteStorage } from "./storage/sqlite";

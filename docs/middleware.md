@@ -1,6 +1,6 @@
-# Middleware
+# Verification And Adapters
 
-Trustline's current implementation is the verification layer: a guard that can be used directly or through Express, Fastify, and Hono adapters.
+Trustline's verification layer is centered on a transport-agnostic guard. Framework integrations live in dedicated subpaths such as `trustline/frameworks/express`, `trustline/frameworks/fastify`, and `trustline/frameworks/hono`.
 
 ## `createGuard`
 
@@ -63,7 +63,11 @@ interface ServiceIdentity {
 
 ```ts
 import express from "express";
-import { createGuard, type TrustlineRequest } from "trustline/middleware";
+import { createGuard } from "trustline";
+import {
+  createExpressGuard,
+  type TrustlineRequest,
+} from "trustline/frameworks/express";
 
 const app = express();
 const guard = createGuard({
@@ -71,7 +75,7 @@ const guard = createGuard({
   audience: "inventory-service",
 });
 
-app.use(guard.express());
+app.use(createExpressGuard(guard));
 
 app.get("/internal", (request: TrustlineRequest, response) => {
   response.json({
@@ -87,12 +91,14 @@ The Express adapter:
 - sets `request.trustline`
 - returns JSON error responses instead of calling the next handler on auth failure
 
+Fastify and Hono follow the same pattern through `createFastifyGuard(guard)` and `createHonoGuard(guard)` from their respective framework subpaths.
+
 ## Bun usage
 
 Bun already uses the standard Web `Request` and `Response` APIs, so you can call `guard.verify(token)` directly from a `Bun.serve()` handler.
 
 ```ts
-import { createGuard } from "trustline/middleware";
+import { createGuard } from "trustline";
 
 const guard = createGuard({
   issuer: "https://auth.internal",
@@ -139,4 +145,4 @@ The current in-memory JWKS cache:
 - reuses in-flight fetch promises to avoid stampedes
 - re-fetches once on key mismatch or signature verification failure before failing the request
 
-No external cache is required for the current middleware slice.
+No external cache is required for the current verification slice.

@@ -2,7 +2,8 @@ import express from "express";
 import request from "supertest";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createGuard } from "../../src/middleware";
+import { createGuard } from "../../src";
+import { createExpressGuard } from "../../src/frameworks/express";
 import { createTestIssuer, type TestIssuer } from "../helpers";
 
 describe("Express guard", () => {
@@ -16,7 +17,7 @@ describe("Express guard", () => {
     const app = express();
     const guard = createGuard({ issuer: "http://127.0.0.1:9999" });
 
-    app.use(guard.express());
+    app.use(createExpressGuard(guard));
     app.get("/", (_request, response) => {
       response.json({ ok: true });
     });
@@ -41,7 +42,7 @@ describe("Express guard", () => {
       audience: "inventory-service",
     });
 
-    app.use(guard.express());
+    app.use(createExpressGuard(guard));
     app.get("/", (req, response) => {
       response.json((req as { trustline?: { clientId: string } }).trustline);
     });
@@ -69,7 +70,7 @@ describe("Express guard", () => {
       scopes: ["write:inventory"],
     });
 
-    app.use(guard.express());
+    app.use(createExpressGuard(guard));
     app.get("/", (_request, response) => {
       response.json({ ok: true });
     });

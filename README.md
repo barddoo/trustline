@@ -2,13 +2,14 @@
 
 Service identity and authorization for modern JavaScript runtimes.
 
-Trustline is a machine-to-machine authentication library for internal services. It is designed around three independent entry points:
+Trustline is a machine-to-machine authentication library for internal services. It is designed around dedicated core and integration entry points:
 
-- `trustline`: provider, storage, and shared exports
+- `trustline`: provider, guard, memory storage, and shared core exports
 - `trustline/client`: token fetching and caching for outgoing requests
-- `trustline/middleware`: token verification for receiving services
+- `trustline/frameworks/*`: framework adapters for receiving services
+- `trustline/adapters/*`: SQL storage adapters
 
-The package now ships the first full stack: provider, client, guard, memory storage, and SQL storage adapters for SQLite, Postgres, and MySQL.
+The package now ships the first full stack: provider, client, guard, framework adapters, memory storage, and SQL storage adapters for SQLite, Postgres, and MySQL.
 
 ## Current status
 
@@ -18,8 +19,13 @@ Available now:
 - `createClient(options)`
 - `createGuard(options)`
 - `memoryStorage()`
-- `sqliteStorage(path)`
-- `sqliteStorage(database)`
+- `createExpressProvider(provider)`
+- `createExpressGuard(guard)`
+- `createFastifyProvider(provider)`
+- `createFastifyGuard(guard)`
+- `createHonoProvider(provider)`
+- `createHonoGuard(guard)`
+- `sqliteStorage(path | database)`
 - `postgresStorage(pool)`
 - `mysqlStorage(pool)`
 
@@ -50,6 +56,15 @@ Or with npm:
 
 ```bash
 npm install trustline
+```
+
+Install only the integrations you use. For example, Express users install `express`; SQLite users install `better-sqlite3` and `kysely`.
+
+Example installs:
+
+```bash
+npm install trustline express
+npm install trustline better-sqlite3 kysely
 ```
 
 If you are working from this repository before package publication, build the package locally and install or link it from the repo source.
@@ -160,12 +175,12 @@ Bun.serve({
 
 ```ts
 import express from "express";
+import { createGuard, createProvider, memoryStorage } from "trustline";
 import {
-  createProvider,
-  createGuard,
-  memoryStorage,
+  createExpressGuard,
+  createExpressProvider,
   type TrustlineRequest,
-} from "trustline";
+} from "trustline/frameworks/express";
 
 const app = express();
 
@@ -179,8 +194,8 @@ const guard = createGuard({
   audience: "inventory-service",
 });
 
-app.use(provider.express());
-app.use(guard.express());
+app.use(createExpressProvider(provider));
+app.use(createExpressGuard(guard));
 
 app.get("/internal", (request: TrustlineRequest, response) => {
   response.json({
@@ -229,20 +244,20 @@ interface ServiceIdentity {
 Adapter surface:
 
 - `provider.handle(request)`
-- `provider.express()`
-- `provider.fastify()`
-- `provider.hono()`
 - `guard.verify(token)`
-- `guard.express()`
-- `guard.fastify()`
-- `guard.hono()`
+- `createExpressProvider(provider)`
+- `createExpressGuard(guard)`
+- `createFastifyProvider(provider)`
+- `createFastifyGuard(guard)`
+- `createHonoProvider(provider)`
+- `createHonoGuard(guard)`
 
 Supported signing algorithms:
 
 - `RS256`
 - `ES256`
 
-Bundled storage adapters:
+Bundled storage adapters via dedicated subpaths:
 
 - `memoryStorage()`
 - `sqliteStorage(path | database)`
@@ -255,11 +270,9 @@ SQL adapters follow the Better Auth-style pattern of receiving ready-made databa
 import Database from "better-sqlite3";
 import { createPool as createMysqlPool } from "mysql2";
 import { Pool as PostgresPool } from "pg";
-import {
-  mysqlStorage,
-  postgresStorage,
-  sqliteStorage,
-} from "trustline";
+import { mysqlStorage } from "trustline/adapters/mysql";
+import { postgresStorage } from "trustline/adapters/postgres";
+import { sqliteStorage } from "trustline/adapters/sqlite";
 
 const sqlite = sqliteStorage(new Database("./trustline.sqlite"));
 const postgres = postgresStorage(

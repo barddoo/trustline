@@ -2,16 +2,20 @@ import type { Pool as MysqlPool } from "mysql2";
 import type { Pool as PostgresPool } from "pg";
 import { describe, expect, it } from "vitest";
 
-import {
-  memoryStorage,
-  mysqlStorage,
-  postgresStorage,
-  sqliteStorage,
-} from "../../src";
+import * as trustline from "../../src";
+import { mysqlStorage } from "../../src/adapters/mysql";
+import { postgresStorage } from "../../src/adapters/postgres";
+import { sqliteStorage } from "../../src/adapters/sqlite";
 
 describe("storage adapter exports", () => {
-  it("exports all storage factories", () => {
-    expect(typeof memoryStorage).toBe("function");
+  it("keeps root exports focused on core APIs", () => {
+    expect(typeof trustline.memoryStorage).toBe("function");
+    expect("sqliteStorage" in trustline).toBe(false);
+    expect("postgresStorage" in trustline).toBe(false);
+    expect("mysqlStorage" in trustline).toBe(false);
+  });
+
+  it("exports storage factories from adapter subpaths", () => {
     expect(typeof sqliteStorage).toBe("function");
     expect(typeof postgresStorage).toBe("function");
     expect(typeof mysqlStorage).toBe("function");

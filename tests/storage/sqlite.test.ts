@@ -4,7 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createProvider, sqliteStorage } from "../../src";
+import { createProvider } from "../../src";
+import { sqliteStorage } from "../../src/adapters/sqlite";
 
 describe("sqliteStorage", () => {
   const directories: string[] = [];

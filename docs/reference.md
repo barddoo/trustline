@@ -9,12 +9,24 @@ import {
   createGuard,
   createProvider,
   memoryStorage,
-  mysqlStorage,
-  postgresStorage,
-  sqliteStorage,
 } from "trustline";
 import { createClient } from "trustline/client";
-import { createGuard } from "trustline/middleware";
+import {
+  createExpressGuard,
+  createExpressProvider,
+  type TrustlineRequest,
+} from "trustline/frameworks/express";
+import {
+  createFastifyGuard,
+  createFastifyProvider,
+} from "trustline/frameworks/fastify";
+import {
+  createHonoGuard,
+  createHonoProvider,
+} from "trustline/frameworks/hono";
+import { mysqlStorage } from "trustline/adapters/mysql";
+import { postgresStorage } from "trustline/adapters/postgres";
+import { sqliteStorage } from "trustline/adapters/sqlite";
 ```
 
 ## `createProvider(options)`
@@ -48,9 +60,6 @@ interface ProviderOptions {
 ```ts
 interface Provider {
   handle(request: Request): Promise<Response>;
-  express(): RequestHandler;
-  fastify(): FastifyPluginAsync;
-  hono(): Hono;
   clients: {
     create(input: { name: string; scopes?: string[] }): Promise<{
       clientId: string;
@@ -83,7 +92,7 @@ interface ClientOptions {
 
 ## `createGuard(options)`
 
-Creates a reusable verifier with direct verification and framework adapters.
+Creates a reusable verifier with direct verification.
 
 ```ts
 const guard = createGuard(options);
@@ -107,9 +116,6 @@ interface GuardOptions {
 ```ts
 interface Guard {
   verify(token: string): Promise<ServiceIdentity>;
-  express(): RequestHandler;
-  fastify(): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-  hono(): MiddlewareHandler;
 }
 ```
 
@@ -125,9 +131,12 @@ const identity = await guard.verify(token);
 
 - `provider.handle(request)` can be passed directly to Bun or any Web API-compatible runtime
 - `guard.verify(token)` can be called directly inside Bun or any custom server handler
-- `guard.express()` populates `request.trustline`
-- `guard.fastify()` populates `request.trustline`
-- `guard.hono()` stores identity under `context.get("trustline")`
+- `createExpressProvider(provider)` adapts the provider to Express
+- `createExpressGuard(guard)` populates `request.trustline`
+- `createFastifyProvider(provider)` adapts the provider to Fastify
+- `createFastifyGuard(guard)` populates `request.trustline`
+- `createHonoProvider(provider)` adapts the provider to Hono
+- `createHonoGuard(guard)` stores identity under `context.get("trustline")`
 
 ## `ServiceIdentity`
 
@@ -143,10 +152,10 @@ interface ServiceIdentity {
 
 ## `TrustlineRequest`
 
-The middleware exports a request type for typed Express handlers:
+The Express framework entrypoint exports a request type for typed handlers:
 
 ```ts
-import type { TrustlineRequest } from "trustline/middleware";
+import type { TrustlineRequest } from "trustline/frameworks/express";
 ```
 
 It extends `Request` with:
@@ -178,6 +187,8 @@ Bundled implementations:
 - `sqliteStorage(path | database, options?)`
 - `postgresStorage(pool, options?)`
 - `mysqlStorage(pool, options?)`
+
+The SQL adapters are imported from dedicated subpaths rather than the root package.
 
 SQL-backed adapters accept:
 
