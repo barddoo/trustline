@@ -1,6 +1,7 @@
 import { defineConfig } from "vitepress";
 
 export default defineConfig({
+  base: "/trustline/",
   title: "Trustline",
   description:
     "Service identity and authorization for modern JavaScript runtimes",
